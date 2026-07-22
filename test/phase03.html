@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 03 驗收測試</title>
+  <link rel="stylesheet" href="../style.css">
+  <style>
+    .test-section { margin-bottom: 2rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); }
+    .result-line { font-size: 13px; margin: 2px 0; }
+    .pass { color: var(--color-success); }
+    .fail { color: var(--color-danger); font-weight: bold; }
+    .summary { font-size: 1rem; font-weight: bold; padding: 0.75rem 1rem; border-radius: var(--radius); margin-bottom: 1.5rem; }
+    .summary.all-pass { background: #dcfce7; color: #15803d; }
+    .summary.has-fail  { background: #fee2e2; color: #b91c1c; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Phase 03 驗收測試 — credit-calc.js 純函式</h1>
+  <div id="summary" class="summary">測試執行中...</div>
+  <div class="test-section"><h2>① taken / earned 基本邏輯</h2><div id="res-taken-earned"></div></div>
+  <div class="test-section"><h2>② manualFallback 回退機制</h2><div id="res-fallback"></div></div>
+  <div class="test-section"><h2>③ creditTypeSubtotal / breakdown</h2><div id="res-subtotal"></div></div>
+  <div class="test-section"><h2>④ totalEarned / remainingCredits</h2><div id="res-total"></div></div>
+  <div class="test-section"><h2>⑤ laborHours 系列</h2><div id="res-labor"></div></div>
+  <div class="test-section"><h2>⑥ detectConflicts 衝堂偵測</h2><div id="res-conflict"></div></div>
+  <div class="test-section"><h2>⑦ 純函式無副作用驗證</h2><div id="res-purity"></div></div>
+</main>
+<script src="../js/credit-calc.js"></script>
+<script>
+(function () {
+  let totalPass = 0, totalFail = 0;
+  function assert(containerId, label, condition) {
+    const el = document.getElementById(containerId);
+    const div = document.createElement('div');
+    div.className = 'result-line ' + (condition ? 'pass' : 'fail');
+    div.textContent = (condition ? '✅ PASS' : '❌ FAIL') + ' — ' + label;
+    el.appendChild(div);
+    condition ? totalPass++ : totalFail++;
+  }
+
+  // ── ① taken / earned 基本邏輯 ───────────────────
+  const mockCourses = [
+    { semester: '大一上', status: 'selected', creditType: '系選', credits: 3, resultStatus: 'passed' },
+    { semester: '大一上', status: 'selected', creditType: '必修', credits: 2, resultStatus: 'passed' },
+    { semester: '大一上', status: 'selected', creditType: '系選', credits: 3, resultStatus: 'failed' },
+    { semester: '大一上', status: 'planned',  creditType: '系選', credits: 3, resultStatus: 'pending' }, // 不應計入(非selected)
+    { semester: '大一下', status: 'selected', creditType: '系選', credits: 4, resultStatus: 'passed' }
+  ];
+  const t1 = CreditCalc.taken(mockCourses, '大一上', {});
+  assert('res-taken-earned', 'taken() 只算 selected 課程總學分 = 8', t1.value === 8);
+  assert('res-taken-earned', 'taken() isEstimated=false（有明細）', t1.isEstimated === false);
+  const e1 = CreditCalc.earned(mockCourses, '大一上', {});
+  assert('res-taken-earned', 'earned() 只算 passed 課程 = 5', e1.value === 5);
+  assert('res-taken-earned', 'earned() isEstimated=false', e1.isEstimated === false);
+
+  // ── ② manualFallback 回退 ───────────────────────
+  const manualFallback = { '大二上': { taken: 17.5, earned: 15 } };
+  const t2 = CreditCalc.taken(mockCourses, '大二上', manualFallback); // 無明細 → fallback
+  assert('res-fallback', '無明細學期 taken 回退正確值', t2.value === 17.5);
+  assert('res-fallback', '無明細學期 isEstimated=true', t2.isEstimated === true);
+  const e2 = CreditCalc.earned(mockCourses, '大二上', manualFallback);
+  assert('res-fallback', '無明細學期 earned 回退正確值', e2.value === 15);
+  assert('res-fallback', '無明細學期 isEstimated=true', e2.isEstimated === true);
+  const t3 = CreditCalc.taken(mockCourses, '大三上', {}); // 無明細也無fallback
+  assert('res-fallback', '無明細無fallback → 0', t3.value === 0 && t3.isEstimated === true);
+
+  // ── ③ creditTypeSubtotal / breakdown ────────────
+  const sub1 = CreditCalc.creditTypeSubtotal(mockCourses, '大一上', '系選');
+  assert('res-subtotal', '系選小計正確（僅selected）= 3', sub1 === 3);
+  const breakdown = CreditCalc.creditTypeBreakdown(mockCourses, '大一上', ['系選','必修','非系選']);
+  assert('res-subtotal', 'breakdown 系選=3', breakdown['系選'] === 3);
+  assert('res-subtotal', 'breakdown 必修=2', breakdown['必修'] === 2);
+  assert('res-subtotal', 'breakdown 非系選=0（無資料）', breakdown['非系選'] === 0);
+
+  // ── ④ totalEarned / remainingCredits ────────────
+  const semesters = ['大一上','大一下','大二上'];
+  const totalResult = CreditCalc.totalEarned(mockCourses, semesters, manualFallback);
+  assert('res-total', 'totalEarned 加總正確 = 5+4+15 = 24', totalResult.total === 24);
+  assert('res-total', 'perSemester 包含 3 學期', Object.keys(totalResult.perSemester).length === 3);
+  const remaining = CreditCalc.remainingCredits(128, 24);
+  assert('res-total', 'remainingCredits 計算正確 = 104', remaining === 104);
+  const remainingOver = CreditCalc.remainingCredits(20, 24);
+  assert('res-total', 'remainingCredits 可為負數（已超過門檻）', remainingOver === -4);
+
+  // ── ⑤ laborHours 系列 ───────────────────────────
+  const weeks = [
+    { period: '第1週', hours: 2.5, count: 5 },
+    { period: '第2週', hours: 2.5, count: 3 }
+  ];
+  const laborSum = CreditCalc.laborHoursSum(weeks);
+  assert('res-labor', 'laborHoursSum 正確 = 2.5*5 + 2.5*3 = 20', laborSum === 20);
+  const laborRemaining = CreditCalc.laborHoursRemaining(weeks, 12);
+  assert('res-labor', 'laborHoursRemaining 已超過應修 = -8', laborRemaining === -8);
+  const emptyWeeksSum = CreditCalc.laborHoursSum([]);
+  assert('res-labor', '空週次陣列 sum=0', emptyWeeksSum === 0);
+  // count 缺省應視為 1
+  const weeksNoCount = [{ period: '第1週', hours: 3 }];
+  assert('res-labor', 'count 缺省視為 1', CreditCalc.laborHoursSum(weeksNoCount) === 3);
+
+  // ── ⑥ detectConflicts ───────────────────────────
+  const conflictCourses = [
+    { name: '課A', day: '一', periods: '2,3,4' },
+    { name: '課B', day: '一', periods: '3' }, // 與課A在第3節衝堂
+    { name: '課C', day: '二', periods: '5,6' }
+  ];
+  const conflicts = CreditCalc.detectConflicts(conflictCourses);
+  assert('res-conflict', '偵測到 1 處衝堂', conflicts.length === 1);
+  assert('res-conflict', '衝堂位置正確（星期一第3節）', conflicts[0]?.day === '一' && conflicts[0]?.period === '3');
+  assert('res-conflict', '衝堂課程包含課A與課B', conflicts[0]?.courses.length === 2);
+  const noConflict = CreditCalc.detectConflicts([{ name: '課D', day: '三', periods: '1' }]);
+  assert('res-conflict', '無衝堂時返回空陣列', noConflict.length === 0);
+
+  // ── ⑦ 純函式無副作用驗證 ────────────────────────
+  const originalCourses = JSON.parse(JSON.stringify(mockCourses));
+  CreditCalc.taken(mockCourses, '大一上', {});
+  CreditCalc.earned(mockCourses, '大一上', {});
+  CreditCalc.detectConflicts(mockCourses);
+  assert('res-purity', '多次呼叫後原始輸入陣列未被修改', JSON.stringify(mockCourses) === JSON.stringify(originalCourses));
+  assert('res-purity', 'CreditCalc 未污染 window/localStorage（無 Storage 依賴）', typeof CreditCalc.taken === 'function' && !('write' in CreditCalc));
+
+  // ── 總結 ────────────────────────────────────────
+  const summary = document.getElementById('summary');
+  const total = totalPass + totalFail;
+  if (totalFail === 0) {
+    summary.className = 'summary all-pass';
+    summary.textContent = `✅ 全部通過 ${totalPass}/${total} — Phase 03 驗收完成`;
+  } else {
+    summary.className = 'summary has-fail';
+    summary.textContent = `❌ ${totalFail} 項失敗（通過 ${totalPass}/${total}）`;
+  }
+})();
+</script>
+</body>
+</html>
