@@ -10,10 +10,317 @@
   <header id="app-header"></header>
   <main>
     <h1>課程資料庫</h1>
-    <p class="text-muted">Phase 02 實作</p>
+
+    <!-- ============ Catalog 瀏覽區 ============ -->
+    <h2>選修課程庫（Catalog）</h2>
+    <div class="catalog-filters">
+      <input type="text" id="filter-keyword" placeholder="搜尋課名/老師…">
+      <select id="filter-domain">
+        <option value="">全部領域</option>
+      </select>
+      <select id="filter-day">
+        <option value="">全部星期</option>
+        <option value="一">一</option>
+        <option value="二">二</option>
+        <option value="三">三</option>
+        <option value="四">四</option>
+        <option value="五">五</option>
+      </select>
+      <button type="button" id="btn-manage-category" class="btn btn-secondary">管理類別選項</button>
+      <button type="button" id="btn-manage-domain" class="btn btn-secondary">管理領域選項</button>
+    </div>
+    <div id="catalog-table-container"></div>
+
+    <!-- ============ 新增 catalog 課程 ============ -->
+    <h2 class="section-divider">新增選修課程到 Catalog</h2>
+    <div id="catalog-editor-container"></div>
+
+    <!-- ============ My Courses 管理區 ============ -->
+    <h2 class="section-divider">我的課程紀錄（My Courses）</h2>
+    <p class="text-muted mb-2">加入預選、切換修課狀態、標記成績結果。</p>
+    <div id="my-courses-container"></div>
   </main>
+
   <script src="../js/storage.js"></script>
   <script src="../js/editable-table.js"></script>
+  <script src="../js/list-editor.js"></script>
   <script src="../js/header.js"></script>
+  <script>
+  (function () {
+    // ==========================================================
+    // 資料載入（Phase 02：本地 localStorage，尚無 GitHub 同步）
+    // ==========================================================
+    // catalog（公開資料，含測試 fixture fallback）
+    let catalog = Storage.read('catalog') || [];
+    let catalogConfig = Storage.read('catalog-config') || {
+      categoryOptions: ['系上選修', '跨域課程', '通識'],
+      domainOptions: ['生態', '社會', '文化', '生活']
+    };
+    let teachers = Storage.read('teachers') || [];
+
+    // my-courses（私密資料，Phase 02 暫存 localStorage，Phase 06 才接雲端同步）
+    let myCourses = Storage.read('my-courses') || [];
+
+    // curriculum enum（暫時內嵌預設值，Phase 06 接雲端後改為真正來源）
+    let curriculumEnum = Storage.read('curriculum-enum') || {
+      creditTypeOptions: ['系選', '必修', '非系選', '通識', '體育'],
+      semesterOptions: ['大一上','大一下','大二上','大二下','大三上','大三下','大四上','大四下']
+    };
+
+    function persistCatalog() { Storage.write('catalog', catalog); }
+    function persistCatalogConfig() { Storage.write('catalog-config', catalogConfig); }
+    function persistMyCourses() { Storage.write('my-courses', myCourses); }
+
+    // ==========================================================
+    // 篩選邏輯
+    // ==========================================================
+    function getFilteredCatalog() {
+      const kw = document.getElementById('filter-keyword').value.trim().toLowerCase();
+      const domain = document.getElementById('filter-domain').value;
+      const day = document.getElementById('filter-day').value;
+      return catalog.filter(c => {
+        if (kw && !(`${c.name} ${c.teacher}`.toLowerCase().includes(kw))) return false;
+        if (domain && c.domain !== domain) return false;
+        if (day && c.day !== day) return false;
+        return true;
+      });
+    }
+
+    function populateDomainFilter() {
+      const sel = document.getElementById('filter-domain');
+      const current = sel.value;
+      sel.innerHTML = '<option value="">全部領域</option>';
+      (catalogConfig.domainOptions || []).forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d;
+        opt.textContent = d;
+        sel.appendChild(opt);
+      });
+      sel.value = current;
+    }
+
+    // ==========================================================
+    // Catalog 瀏覽表（唯讀 + 加入預選按鈕，非 EditableTable）
+    // ==========================================================
+    function renderCatalogTable() {
+      const container = document.getElementById('catalog-table-container');
+      container.innerHTML = '';
+      const filtered = getFilteredCatalog();
+
+      if (filtered.length === 0) {
+        const p = document.createElement('p');
+        p.className = 'text-muted';
+        p.textContent = catalog.length === 0
+          ? '目前 Catalog 尚無課程，請於下方新增。'
+          : '無符合篩選條件的課程。';
+        container.appendChild(p);
+        return;
+      }
+
+      const wrap = document.createElement('div');
+      wrap.className = 'editable-table-wrap';
+      const table = document.createElement('table');
+      table.className = 'editable-table';
+
+      const thead = document.createElement('thead');
+      thead.innerHTML = `<tr>
+        <th>課名</th><th>老師</th><th>星期</th><th>節次</th>
+        <th>學分</th><th>類別</th><th>領域</th><th class="col-action">操作</th>
+      </tr>`;
+      table.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+      filtered.forEach(course => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${escapeHtml(course.name)}</td>
+          <td>${escapeHtml(course.teacher)}</td>
+          <td>${escapeHtml(course.day)}</td>
+          <td>${escapeHtml(course.periods)}</td>
+          <td>${escapeHtml(String(course.credits))}</td>
+          <td>${escapeHtml(course.category || '')}</td>
+          <td>${escapeHtml(course.domain || '')}</td>
+        `;
+        const tdAction = document.createElement('td');
+        tdAction.className = 'col-action';
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.textContent = '加入預選';
+        addBtn.className = 'btn btn-primary catalog-row-add-btn';
+        addBtn.addEventListener('click', () => addToMyCourses(course));
+        tdAction.appendChild(addBtn);
+        tr.appendChild(tdAction);
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      container.appendChild(wrap);
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str ?? '';
+      return div.innerHTML;
+    }
+
+    // ==========================================================
+    // 加入預選流程（規劃書 5.1 節運作邏輯）
+    // ==========================================================
+    function addToMyCourses(course) {
+      const semester = prompt(
+        `加入預選：${course.name}\n\n請輸入學期（如：大一上）：\n可選值：${curriculumEnum.semesterOptions.join('、')}`
+      );
+      if (semester === null) return; // 取消
+      if (!curriculumEnum.semesterOptions.includes(semester.trim())) {
+        alert('學期輸入不在可選清單內，請重新操作並輸入正確值。');
+        return;
+      }
+
+      const creditType = prompt(
+        `請輸入學分類別：\n可選值：${curriculumEnum.creditTypeOptions.join('、')}`
+      );
+      if (creditType === null) return;
+      if (!curriculumEnum.creditTypeOptions.includes(creditType.trim())) {
+        alert('學分類別不在可選清單內，請重新操作並輸入正確值。');
+        return;
+      }
+
+      const newRow = {
+        instanceId: (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)),
+        semester: semester.trim(),
+        status: 'planned',
+        creditType: creditType.trim(),
+        credits: course.credits,
+        name: course.name,
+        teacher: course.teacher,
+        day: course.day,
+        periods: course.periods,
+        resultStatus: 'pending',
+        grading: [],
+        note: ''
+      };
+
+      myCourses.push(newRow);
+      persistMyCourses();
+      renderMyCoursesTable();
+      alert(`已加入預選：${course.name}（${semester.trim()} / ${creditType.trim()}）`);
+    }
+
+    // ==========================================================
+    // Catalog 新增課程編輯器（EditableTable）
+    // ==========================================================
+    let catalogEditorInstance = null;
+    function renderCatalogEditor() {
+      const container = document.getElementById('catalog-editor-container');
+      catalogEditorInstance = EditableTable.init({
+        container,
+        data: catalog,
+        schema: {
+          idField: 'courseId',
+          fields: [
+            { key: 'name',     label: '課名', type: 'text',   width: '160px' },
+            { key: 'teacher',  label: '老師', type: 'text',   width: '100px' },
+            { key: 'day',      label: '星期', type: 'select', options: ['一','二','三','四','五'], width: '70px' },
+            { key: 'periods',  label: '節次', type: 'text',   width: '90px', placeholder: '2,3,4' },
+            { key: 'credits',  label: '學分', type: 'number', width: '70px' },
+            { key: 'category', label: '類別', type: 'select', options: catalogConfig.categoryOptions, width: '110px' },
+            { key: 'domain',   label: '領域', type: 'select', options: catalogConfig.domainOptions, width: '90px' },
+            { key: 'note',     label: '備註', type: 'textarea' }
+          ]
+        },
+        onChange: (newData) => {
+          catalog = newData;
+          persistCatalog();
+          renderCatalogTable();
+          populateDomainFilter();
+        },
+        options: {
+          addLabel: '新增 Catalog 課程',
+          deleteLabel: '刪除',
+          emptyMessage: '尚無課程，點擊上方新增。'
+        }
+      });
+    }
+
+    // ==========================================================
+    // My Courses 管理表（EditableTable，含 status/resultStatus 切換）
+    // ==========================================================
+    let myCoursesInstance = null;
+    function renderMyCoursesTable() {
+      const container = document.getElementById('my-courses-container');
+      myCoursesInstance = EditableTable.init({
+        container,
+        data: myCourses,
+        schema: {
+          idField: 'instanceId',
+          fields: [
+            { key: 'semester',     label: '學期',   type: 'select', options: curriculumEnum.semesterOptions, width: '90px' },
+            { key: 'name',         label: '課名',   type: 'text',   width: '140px' },
+            { key: 'teacher',      label: '老師',   type: 'text',   width: '90px' },
+            { key: 'creditType',   label: '學分類別', type: 'select', options: curriculumEnum.creditTypeOptions, width: '90px' },
+            { key: 'credits',      label: '學分',   type: 'number', width: '70px' },
+            { key: 'status',       label: '狀態',   type: 'select', options: ['planned', 'selected'], width: '90px' },
+            { key: 'resultStatus', label: '結果',   type: 'select', options: ['pending','passed','failed','withdrawn'], width: '90px' },
+            { key: 'note',         label: '備註',   type: 'textarea' }
+          ]
+        },
+        onChange: (newData) => {
+          myCourses = newData;
+          persistMyCourses();
+        },
+        options: {
+          addLabel: '手動新增課程紀錄',
+          deleteLabel: '刪除',
+          emptyMessage: '尚無課程紀錄，可從上方 Catalog 加入預選，或手動新增。'
+        }
+      });
+    }
+
+    // ==========================================================
+    // enum 管理按鈕綁定
+    // ==========================================================
+    document.getElementById('btn-manage-category').addEventListener('click', () => {
+      ListEditor.open({
+        title: '管理課程類別選項',
+        options: catalogConfig.categoryOptions,
+        usageChecker: (val) => catalog.filter(c => c.category === val).length,
+        onSave: (newOptions) => {
+          catalogConfig.categoryOptions = newOptions;
+          persistCatalogConfig();
+          renderCatalogEditor(); // 重新渲染以更新 select 選項
+        }
+      });
+    });
+
+    document.getElementById('btn-manage-domain').addEventListener('click', () => {
+      ListEditor.open({
+        title: '管理課程領域選項',
+        options: catalogConfig.domainOptions,
+        usageChecker: (val) => catalog.filter(c => c.domain === val).length,
+        onSave: (newOptions) => {
+          catalogConfig.domainOptions = newOptions;
+          persistCatalogConfig();
+          populateDomainFilter();
+          renderCatalogEditor();
+        }
+      });
+    });
+
+    // ==========================================================
+    // 篩選器事件綁定
+    // ==========================================================
+    document.getElementById('filter-keyword').addEventListener('input', renderCatalogTable);
+    document.getElementById('filter-domain').addEventListener('change', renderCatalogTable);
+    document.getElementById('filter-day').addEventListener('change', renderCatalogTable);
+
+    // ==========================================================
+    // 初始化
+    // ==========================================================
+    populateDomainFilter();
+    renderCatalogTable();
+    renderCatalogEditor();
+    renderMyCoursesTable();
+  })();
+  </script>
 </body>
 </html>
