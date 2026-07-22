@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 02 驗收測試</title>
+  <link rel="stylesheet" href="../style.css">
+  <style>
+    .test-section { margin-bottom: 2rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); }
+    .result-line { font-size: 13px; margin: 2px 0; }
+    .pass { color: var(--color-success); }
+    .fail { color: var(--color-danger); font-weight: bold; }
+    .summary { font-size: 1rem; font-weight: bold; padding: 0.75rem 1rem; border-radius: var(--radius); margin-bottom: 1.5rem; }
+    .summary.all-pass { background: #dcfce7; color: #15803d; }
+    .summary.has-fail  { background: #fee2e2; color: #b91c1c; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Phase 02 驗收測試</h1>
+  <p class="text-muted mb-2">經本地 server 開啟：<code>http://localhost:8080/test/phase02.html</code></p>
+  <div id="summary" class="summary">測試執行中...</div>
+
+  <div class="test-section">
+    <h2>① ListEditor — 基本行為</h2>
+    <div id="res-listeditor"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>② ListEditor — 使用中選項拒絕刪除</h2>
+    <div id="res-usage-guard"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>③ Catalog → My Courses 資料流（模擬 addToMyCourses 邏輯）</h2>
+    <div id="res-dataflow"></div>
+  </div>
+</main>
+
+<script src="../js/storage.js"></script>
+<script src="../js/editable-table.js"></script>
+<script src="../js/list-editor.js"></script>
+<script>
+(function () {
+  let totalPass = 0, totalFail = 0;
+
+  function assert(containerId, label, condition) {
+    const el = document.getElementById(containerId);
+    const div = document.createElement('div');
+    div.className = 'result-line ' + (condition ? 'pass' : 'fail');
+    div.textContent = (condition ? '✅ PASS' : '❌ FAIL') + ' — ' + label;
+    el.appendChild(div);
+    condition ? totalPass++ : totalFail++;
+    return condition;
+  }
+
+  // ── ① ListEditor 基本行為 ──────────────────────
+  assert('res-listeditor', 'ListEditor.open 不拋例外', (() => {
+    try {
+      ListEditor.open({
+        title: '測試選單',
+        options: ['A', 'B', 'C'],
+        usageChecker: () => 0,
+        onSave: () => {}
+      });
+      return true;
+    } catch (e) {
+      console.error(e);
+      return false;
+    }
+  })());
+
+  assert('res-listeditor', '彈窗 DOM 已掛載到 body', document.querySelector('.list-editor-overlay') !== null);
+  assert('res-listeditor', '彈窗顯示正確標題', document.querySelector('.list-editor-modal h3')?.textContent === '測試選單');
+  assert('res-listeditor', '彈窗列出 3 個初始選項', document.querySelectorAll('.list-editor-item').length === 3);
+
+  ListEditor.close();
+  assert('res-listeditor', 'close() 後彈窗從 DOM 移除', document.querySelector('.list-editor-overlay') === null);
+
+  // ── ② 使用中選項拒絕刪除 ────────────────────────
+  let saveCalledWith = null;
+  let usageCheckCalls = [];
+  const originalAlert = window.alert;
+  const originalConfirm = window.confirm;
+  let alertMessages = [];
+  window.alert = (msg) => { alertMessages.push(msg); };
+  window.confirm = () => true; // 自動確認刪除
+
+  ListEditor.open({
+    title: '使用中測試',
+    options: ['系上選修', '通識'],
+    usageChecker: (val) => {
+      usageCheckCalls.push(val);
+      return val === '系上選修' ? 3 : 0; // 系上選修有 3 筆使用中
+    },
+    onSave: (opts) => { saveCalledWith = opts; }
+  });
+
+  // 嘗試刪除「系上選修」（使用中，應被拒絕）
+  const items = document.querySelectorAll('.list-editor-item');
+  const deleteButtons = Array.from(items).map(li => li.querySelector('.btn-danger'));
+  deleteButtons[0].click(); // 系上選修
+
+  assert('res-usage-guard', 'usageChecker 有被呼叫', usageCheckCalls.includes('系上選修'));
+  assert('res-usage-guard', '使用中選項刪除被拒絕（跳出 alert）', alertMessages.some(m => m.includes('無法刪除')));
+  assert('res-usage-guard', '使用中選項仍存在於清單', document.querySelectorAll('.list-editor-item').length === 2);
+
+  // 刪除「通識」（未使用，應成功）
+  const items2 = document.querySelectorAll('.list-editor-item');
+  const deleteButtons2 = Array.from(items2).map(li => li.querySelector('.btn-danger'));
+  deleteButtons2[1].click(); // 通識
+
+  assert('res-usage-guard', '未使用選項刪除成功', document.querySelectorAll('.list-editor-item').length === 1);
+
+  // 儲存
+  document.querySelector('.list-editor-footer .btn-primary').click();
+  assert('res-usage-guard', 'onSave 收到正確結果（僅剩系上選修）', JSON.stringify(saveCalledWith) === JSON.stringify(['系上選修']));
+
+  window.alert = originalAlert;
+  window.confirm = originalConfirm;
+
+  // ── ③ Catalog → My Courses 資料流模擬 ──────────
+  // 模擬 courses.html 內 addToMyCourses() 的核心資料轉換邏輯
+  const mockCourse = { name: '金融社會學', teacher: '陳鈺偉', day: '二', periods: '2,3,4', credits: 3 };
+  const semesterOptions = ['大一上','大一下'];
+  const creditTypeOptions = ['系選','必修'];
+
+  function simulateAddToMyCourses(course, semester, creditType) {
+    if (!semesterOptions.includes(semester)) return null;
+    if (!creditTypeOptions.includes(creditType)) return null;
+    return {
+      instanceId: 'test-uuid',
+      semester,
+      status: 'planned',
+      creditType,
+      credits: course.credits,
+      name: course.name,
+      teacher: course.teacher,
+      day: course.day,
+      periods: course.periods,
+      resultStatus: 'pending',
+      grading: [],
+      note: ''
+    };
+  }
+
+  const result = simulateAddToMyCourses(mockCourse, '大一上', '系選');
+  assert('res-dataflow', '合法輸入產生正確資料結構', result !== null);
+  assert('res-dataflow', 'status 預設為 planned', result.status === 'planned');
+  assert('res-dataflow', 'resultStatus 預設為 pending', result.resultStatus === 'pending');
+  assert('res-dataflow', 'credits 正確複製自 catalog 課程', result.credits === 3);
+  assert('res-dataflow', 'name/teacher/day/periods 正確複製', result.name === '金融社會學' && result.teacher === '陳鈺偉');
+
+  const invalidResult = simulateAddToMyCourses(mockCourse, '不存在的學期', '系選');
+  assert('res-dataflow', '不合法學期輸入返回 null（不寫入）', invalidResult === null);
+
+  // ── 總結 ────────────────────────────────────────
+  const summary = document.getElementById('summary');
+  const total = totalPass + totalFail;
+  if (totalFail === 0) {
+    summary.className = 'summary all-pass';
+    summary.textContent = `✅ 全部通過 ${totalPass}/${total} — Phase 02 驗收完成`;
+  } else {
+    summary.className = 'summary has-fail';
+    summary.textContent = `❌ ${totalFail} 項失敗（通過 ${totalPass}/${total}）`;
+  }
+})();
+</script>
+</body>
+</html>
