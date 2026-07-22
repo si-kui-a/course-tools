@@ -10,10 +10,210 @@
   <header id="app-header"></header>
   <main>
     <h1>學分 / 勞作中心</h1>
-    <p class="text-muted">Phase 03 實作</p>
+
+    <h2>畢業門檻總表</h2>
+    <div id="threshold-box" class="threshold-box"></div>
+
+    <h2>8 學期學分總表</h2>
+    <div id="semester-table-container"></div>
+
+    <h2 class="section-divider">通識四領域學分登記</h2>
+    <p class="text-muted mb-2">選擇學期後手動輸入各領域已修學分數。</p>
+    <label>檢視學期：
+      <select id="ge-semester-select"></select>
+    </label>
+    <div id="ge-grid-container" class="ge-grid mt-2"></div>
+
+    <h2 class="section-divider">勞作服務時數登記</h2>
+    <label>檢視學期：
+      <select id="labor-semester-select"></select>
+    </label>
+    <div id="labor-summary-container" class="labor-summary mt-2"></div>
+    <div id="labor-weeks-container"></div>
   </main>
   <script src="../js/storage.js"></script>
   <script src="../js/editable-table.js"></script>
+  <script src="../js/credit-calc.js"></script>
   <script src="../js/header.js"></script>
+  <script>
+  (function () {
+    const SEMESTERS = ['大一上','大一下','大二上','大二下','大三上','大三下','大四上','大四下'];
+    const GE_DOMAINS = ['生態', '社會', '文化', '生活'];
+
+    let myCourses = Storage.read('my-courses') || [];
+    // curriculum（暫存 localStorage，Phase 06 接雲端後改真正來源，PAT-03）
+    let curriculum = Storage.read('curriculum') || {
+      graduationThreshold: 128,
+      semesterRequired: { '大一上':22,'大一下':22,'大二上':17.5,'大二下':22,'大三上':13,'大三下':13,'大四上':9,'大四下':9 },
+      manualFallback: {},
+      generalEducation: {},
+      laborWork: {}
+    };
+
+    function persistCurriculum() { Storage.write('curriculum', curriculum); }
+
+    // ==========================================================
+    // 畢業門檻總表
+    // ==========================================================
+    function renderThresholdBox() {
+      const { total, perSemester } = CreditCalc.totalEarned(myCourses, SEMESTERS, curriculum.manualFallback);
+      const remaining = CreditCalc.remainingCredits(curriculum.graduationThreshold, total);
+      const box = document.getElementById('threshold-box');
+      box.innerHTML = `
+        <div class="flex" style="justify-content: space-between; align-items: baseline;">
+          <div>
+            <div class="text-muted">畢業門檻</div>
+            <div>${curriculum.graduationThreshold} 學分</div>
+          </div>
+          <div>
+            <div class="text-muted">目前實得</div>
+            <div>${total} 學分</div>
+          </div>
+          <div>
+            <div class="text-muted">${remaining > 0 ? '尚差' : '已超過門檻'}</div>
+            <div class="big-number ${remaining <= 0 ? 'negative' : ''}">${Math.abs(remaining)}</div>
+          </div>
+        </div>
+      `;
+      return perSemester;
+    }
+
+    // ==========================================================
+    // 8 學期學分總表
+    // ==========================================================
+    function renderSemesterTable(perSemesterEarned) {
+      const container = document.getElementById('semester-table-container');
+      const table = document.createElement('table');
+      table.className = 'credits-summary-table';
+      const thead = document.createElement('thead');
+      thead.innerHTML = `<tr><th>學期</th><th>應修</th><th>修習(taken)</th><th>實得(earned)</th></tr>`;
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      SEMESTERS.forEach(sem => {
+        const required = curriculum.semesterRequired?.[sem] ?? '—';
+        const takenResult = CreditCalc.taken(myCourses, sem, curriculum.manualFallback);
+        const earnedResult = perSemesterEarned[sem];
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${sem}</td>
+          <td>${required}</td>
+          <td>${takenResult.value}${takenResult.isEstimated ? '<span class="estimated-badge">估算值</span>' : ''}</td>
+          <td>${earnedResult.value}${earnedResult.isEstimated ? '<span class="estimated-badge">估算值</span>' : ''}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      container.innerHTML = '';
+      container.appendChild(table);
+    }
+
+    // ==========================================================
+    // 通識四領域學分登記
+    // ==========================================================
+    const geSemSelect = document.getElementById('ge-semester-select');
+    SEMESTERS.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s; opt.textContent = s;
+      geSemSelect.appendChild(opt);
+    });
+    geSemSelect.value = SEMESTERS[0];
+
+    function renderGeGrid() {
+      const sem = geSemSelect.value;
+      const container = document.getElementById('ge-grid-container');
+      container.innerHTML = '';
+      if (!curriculum.generalEducation[sem]) {
+        curriculum.generalEducation[sem] = {};
+        GE_DOMAINS.forEach(d => curriculum.generalEducation[sem][d] = 0);
+      }
+      GE_DOMAINS.forEach(domain => {
+        const card = document.createElement('div');
+        card.className = 'ge-domain-card';
+        const label = document.createElement('div');
+        label.textContent = domain;
+        card.appendChild(label);
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.min = 0;
+        input.value = curriculum.generalEducation[sem][domain] ?? 0;
+        input.addEventListener('change', () => {
+          const v = parseFloat(input.value) || 0;
+          curriculum.generalEducation[sem][domain] = v;
+          persistCurriculum();
+        });
+        card.appendChild(input);
+        container.appendChild(card);
+      });
+    }
+    geSemSelect.addEventListener('change', renderGeGrid);
+
+    // ==========================================================
+    // 勞作服務時數登記
+    // ==========================================================
+    const laborSemSelect = document.getElementById('labor-semester-select');
+    SEMESTERS.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s; opt.textContent = s;
+      laborSemSelect.appendChild(opt);
+    });
+    laborSemSelect.value = SEMESTERS[0];
+
+    let laborTableInstance = null;
+    function renderLaborSection() {
+      const sem = laborSemSelect.value;
+      if (!curriculum.laborWork[sem]) {
+        curriculum.laborWork[sem] = { requiredHours: 0, weeks: [] };
+      }
+      const laborData = curriculum.laborWork[sem];
+
+      // 摘要
+      const summaryContainer = document.getElementById('labor-summary-container');
+      const sum = CreditCalc.laborHoursSum(laborData.weeks);
+      const remaining = CreditCalc.laborHoursRemaining(laborData.weeks, laborData.requiredHours);
+      summaryContainer.innerHTML = `
+        <span>應修時數：<strong>${laborData.requiredHours}</strong></span>
+        <span>已累積：<strong>${sum}</strong></span>
+        <span>${remaining > 0 ? '尚差' : '已達標'}：<strong>${Math.abs(remaining)}</strong></span>
+      `;
+
+      // 週次編輯表
+      const weeksContainer = document.getElementById('labor-weeks-container');
+      laborTableInstance = EditableTable.init({
+        container: weeksContainer,
+        data: laborData.weeks,
+        schema: {
+          idField: 'weekId',
+          fields: [
+            { key: 'period', label: '週次', type: 'text', width: '160px', placeholder: '9.10~9.16 第1週' },
+            { key: 'hours',  label: '時數', type: 'number', width: '80px' },
+            { key: 'count',  label: '次數', type: 'number', width: '70px', default: 1 }
+          ]
+        },
+        onChange: (newData) => {
+          laborData.weeks = newData;
+          persistCurriculum();
+          renderLaborSection(); // 重新算摘要
+        },
+        options: {
+          addLabel: '新增週次',
+          deleteLabel: '刪除',
+          emptyMessage: '尚無週次紀錄。'
+        }
+      });
+    }
+    laborSemSelect.addEventListener('change', renderLaborSection);
+
+    // ==========================================================
+    // 初始化
+    // ==========================================================
+    function renderAll() {
+      const perSemesterEarned = renderThresholdBox();
+      renderSemesterTable(perSemesterEarned);
+      renderGeGrid();
+      renderLaborSection();
+    }
+    renderAll();
+  })();
+  </script>
 </body>
 </html>
