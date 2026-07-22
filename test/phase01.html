@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 01 驗收測試</title>
+  <link rel="stylesheet" href="../style.css">
+  <style>
+    .test-section {
+      margin-bottom: 2rem;
+      padding: 1rem;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      background: var(--color-surface);
+    }
+    .result-line { font-size: 13px; margin: 2px 0; }
+    .pass { color: var(--color-success); }
+    .fail { color: var(--color-danger); font-weight: bold; }
+    .data-preview {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      margin-top: 0.5rem;
+      padding: 0.5rem;
+      background: #f3f4f6;
+      border-radius: 4px;
+      white-space: pre-wrap;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .summary {
+      font-size: 1rem;
+      font-weight: bold;
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius);
+      margin-bottom: 1.5rem;
+    }
+    .summary.all-pass { background: #dcfce7; color: #15803d; }
+    .summary.has-fail  { background: #fee2e2; color: #b91c1c; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Phase 01 驗收測試</h1>
+  <p class="text-muted mb-2">透過本地 server（<code>python -m http.server 8080</code>）以 <code>http://localhost:8080/test/phase01.html</code> 開啟，勿用 file:// 協議。</p>
+
+  <div id="summary" class="summary">測試執行中...</div>
+
+  <div class="test-section">
+    <h2>① Storage.js — 基本讀寫</h2>
+    <div id="res-storage-rw"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>② Storage.js — hashContent</h2>
+    <div id="res-storage-hash"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>③ Storage.js — validate</h2>
+    <div id="res-storage-validate"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>④ Storage.js — isDirty / markSynced</h2>
+    <div id="res-storage-dirty"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>⑤ EditableTable.js — 渲染 / getData / setData</h2>
+    <div id="table-container"></div>
+    <div id="res-table"></div>
+    <div id="table-data-preview" class="data-preview"></div>
+  </div>
+</main>
+
+<script src="../js/storage.js"></script>
+<script src="../js/editable-table.js"></script>
+<script>
+(function () {
+  let totalPass = 0, totalFail = 0;
+
+  function assert(containerId, label, condition) {
+    const el = document.getElementById(containerId);
+    const div = document.createElement('div');
+    div.className = 'result-line ' + (condition ? 'pass' : 'fail');
+    div.textContent = (condition ? '✅ PASS' : '❌ FAIL') + ' — ' + label;
+    el.appendChild(div);
+    condition ? totalPass++ : totalFail++;
+    return condition;
+  }
+
+  // ── ① 讀寫 ──────────────────────────────────────
+  Storage.remove('__test__');
+  assert('res-storage-rw', 'read 不存在 key → null', Storage.read('__test__') === null);
+  Storage.write('__test__', { x: 99 });
+  assert('res-storage-rw', 'write + read 往返正確', Storage.read('__test__')?.x === 99);
+  Storage.remove('__test__');
+  assert('res-storage-rw', 'remove 後 read → null', Storage.read('__test__') === null);
+
+  // ── ② hash ──────────────────────────────────────
+  const h1 = Storage.hashContent('hello');
+  const h2 = Storage.hashContent('hello');
+  const h3 = Storage.hashContent('world');
+  assert('res-storage-hash', 'hashContent 確定性（同輸入同輸出）', h1 === h2);
+  assert('res-storage-hash', 'hashContent 長度為 8 chars', h1.length === 8);
+  assert('res-storage-hash', 'hashContent 不同輸入不同輸出', h1 !== h3);
+
+  // ── ③ validate ──────────────────────────────────
+  assert('res-storage-validate', '空陣列通過', Storage.validate([], 'my-courses-v1').valid === true);
+  assert('res-storage-validate', '無 _type 欄位通過', Storage.validate([{ name: 'x' }], 'my-courses-v1').valid === true);
+  assert('res-storage-validate', '_type 一致通過', Storage.validate([{ _type: 'my-courses-v1' }], 'my-courses-v1').valid === true);
+  const vFail = Storage.validate([{ _type: 'reviews-v1' }], 'my-courses-v1');
+  assert('res-storage-validate', '_type 不一致 → valid=false', vFail.valid === false);
+  assert('res-storage-validate', '_type 不一致 → 有 error 字串', typeof vFail.error === 'string' && vFail.error.length > 0);
+  assert('res-storage-validate', '物件無 _type 通過', Storage.validate({ count: 5 }, 'curriculum-v1').valid === true);
+  const vObjFail = Storage.validate({ _type: 'wrong-v1' }, 'curriculum-v1');
+  assert('res-storage-validate', '物件 _type 不符 → false', vObjFail.valid === false);
+
+  // ── ④ isDirty / markSynced ──────────────────────
+  Storage.remove('__dirty__');
+  assert('res-storage-dirty', '無本地資料 → isDirty=false', Storage.isDirty('__dirty__') === false);
+  Storage.write('__dirty__', [{ id: 1 }]);
+  assert('res-storage-dirty', '有資料、從未同步 → isDirty=true', Storage.isDirty('__dirty__') === true);
+  Storage.markSynced('__dirty__', 'fake-sha-abc');
+  assert('res-storage-dirty', 'markSynced 後 → isDirty=false', Storage.isDirty('__dirty__') === false);
+  Storage.write('__dirty__', [{ id: 1 }, { id: 2 }]);
+  assert('res-storage-dirty', '資料變更後 → isDirty=true', Storage.isDirty('__dirty__') === true);
+  Storage.remove('__dirty__');
+
+  // ── ⑤ EditableTable ─────────────────────────────
+  const initData = [
+    { name: '鴻海獎學金', amount: 50000, status: '未申請', url: 'https://example.com', note: '' },
+    { name: '測試項目',   amount: 10000, status: '已申請',  url: '',                   note: '備註' }
+  ];
+  Storage.write('__tbl_test__', initData);
+  const preview = document.getElementById('table-data-preview');
+
+  const tbl = EditableTable.init({
+    container: document.getElementById('table-container'),
+    data: initData,
+    schema: {
+      fields: [
+        { key: 'name',   label: '名稱', type: 'text',   width: '150px' },
+        { key: 'amount', label: '金額', type: 'number', width: '80px'  },
+        { key: 'status', label: '狀態', type: 'select', options: ['未申請','已申請','已放棄'], width: '90px' },
+        { key: 'url',    label: '連結', type: 'url',    width: '180px' },
+        { key: 'note',   label: '備註', type: 'textarea' }
+      ]
+    },
+    onChange: (d) => {
+      Storage.write('__tbl_test__', d);
+      preview.textContent = 'onChange 觸發，目前資料：\n' + JSON.stringify(d, null, 2);
+    },
+    options: { addLabel: '新增獎學金', deleteLabel: '刪除', emptyMessage: '尚無項目。' }
+  });
+
+  assert('res-table', 'EditableTable.init 不拋例外', true);
+  const got = tbl.getData();
+  assert('res-table', 'getData() 筆數正確（2）', got.length === 2);
+  assert('res-table', 'getData() 為深拷貝（非原始參考）', got !== initData);
+  assert('res-table', '<table> DOM 已渲染', document.querySelector('#table-container table') !== null);
+  assert('res-table', '新增按鈕存在', document.querySelector('#table-container button') !== null);
+  assert('res-table', 'tbody 列數 = 資料筆數', document.querySelectorAll('#table-container tbody tr').length === 2);
+
+  // setData 測試
+  tbl.setData([{ name: 'setData測試', amount: 1, status: '未申請', url: '', note: '' }]);
+  const after = tbl.getData();
+  assert('res-table', 'setData 後 getData 筆數=1', after.length === 1);
+  assert('res-table', 'setData 後 DOM 列數=1', document.querySelectorAll('#table-container tbody tr').length === 1);
+  assert('res-table', 'setData 資料內容正確', after[0].name === 'setData測試');
+
+  // 還原顯示
+  tbl.setData(initData);
+  preview.textContent = '初始資料：\n' + JSON.stringify(tbl.getData(), null, 2);
+
+  // 清除測試資料
+  Storage.remove('__tbl_test__');
+
+  // ── 總結 ────────────────────────────────────────
+  const summary = document.getElementById('summary');
+  const total = totalPass + totalFail;
+  if (totalFail === 0) {
+    summary.className = 'summary all-pass';
+    summary.textContent = `✅ 全部通過 ${totalPass}/${total} — Phase 01 驗收完成`;
+  } else {
+    summary.className = 'summary has-fail';
+    summary.textContent = `❌ ${totalFail} 項失敗（通過 ${totalPass}/${total}）— 請查看下方詳情`;
+  }
+})();
+</script>
+</body>
+</html>
