@@ -10,10 +10,198 @@
   <header id="app-header"></header>
   <main>
     <h1>課表產生器</h1>
-    <p class="text-muted">Phase 03 實作</p>
+    <div class="timetable-controls">
+      <label>學期：
+        <select id="tt-semester"></select>
+      </label>
+      <label>模式：
+        <select id="tt-mode">
+          <option value="history">歷史檢視（唯讀）</option>
+          <option value="simulation">模擬編輯</option>
+        </select>
+      </label>
+    </div>
+    <div id="tt-credit-subtotal" class="credit-subtotal-bar"></div>
+    <div id="tt-simulation-panel" style="display:none;">
+      <h2>模擬模式：從 Catalog 勾選試算</h2>
+      <div id="tt-catalog-list" class="simulation-catalog-list"></div>
+    </div>
+    <div id="tt-grid-container"></div>
+    <p id="tt-conflict-note" class="text-muted mt-1"></p>
   </main>
   <script src="../js/storage.js"></script>
   <script src="../js/editable-table.js"></script>
+  <script src="../js/credit-calc.js"></script>
   <script src="../js/header.js"></script>
+  <script>
+  (function () {
+    const SEMESTERS = ['大一上','大一下','大二上','大二下','大三上','大三下','大四上','大四下'];
+    const PERIODS = Array.from({ length: 13 }, (_, i) => String(i + 1));
+    const DAYS = ['一','二','三','四','五'];
+
+    let myCourses = Storage.read('my-courses') || [];
+    let catalog = Storage.read('catalog') || [];
+    // 模擬模式下額外勾選的 catalog 課程（不寫回 my-courses，只用於試算）
+    let simSelectedCourseIds = new Set();
+
+    // ---- 學期下拉初始化 ----
+    const semSelect = document.getElementById('tt-semester');
+    SEMESTERS.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      semSelect.appendChild(opt);
+    });
+    semSelect.value = SEMESTERS[0];
+
+    const modeSelect = document.getElementById('tt-mode');
+
+    function currentSemester() { return semSelect.value; }
+    function currentMode() { return modeSelect.value; }
+
+    /**
+     * 取得目前要顯示在課表上的課程清單
+     * 歷史模式：my-courses 中 status=selected 且 semester=目前學期
+     * 模擬模式：上述 + 使用者勾選的 catalog 課程（轉換格式後合併）
+     */
+    function getDisplayCourses() {
+      const sem = currentSemester();
+      const base = CreditCalc.selectedCoursesOf(myCourses, sem);
+      if (currentMode() !== 'simulation') return base;
+
+      const simCourses = catalog
+        .filter(c => simSelectedCourseIds.has(c.courseId))
+        .map(c => ({
+          // 模擬課程沒有 creditType（catalog 無此欄位），歸類為 '模擬'，不計入系選/必修/非系選小計
+          semester: sem, status: 'selected', creditType: c.category === '通識' ? '通識' : '模擬',
+          credits: c.credits, name: c.name, teacher: c.teacher, day: c.day, periods: c.periods,
+          resultStatus: 'pending'
+        }));
+      return base.concat(simCourses);
+    }
+
+    // ---- 課表格渲染 ----
+    function renderGrid() {
+      const container = document.getElementById('tt-grid-container');
+      container.innerHTML = '';
+      const courses = getDisplayCourses();
+      const conflicts = CreditCalc.detectConflicts(courses);
+      const conflictKeys = new Set(conflicts.map(c => `${c.day}-${c.period}`));
+
+      const grid = document.createElement('div');
+      grid.className = 'timetable-grid';
+
+      // Header row
+      grid.appendChild(makeCell('', 'tt-header'));
+      DAYS.forEach(d => grid.appendChild(makeCell('星期' + d, 'tt-header')));
+
+      // Period rows
+      PERIODS.forEach(period => {
+        grid.appendChild(makeCell(period, 'tt-period-label'));
+        DAYS.forEach(day => {
+          const key = `${day}-${period}`;
+          const coursesInSlot = courses.filter(c => {
+            const periods = String(c.periods || '').split(',').map(p => p.trim());
+            return c.day === day && periods.includes(period);
+          });
+          const cell = document.createElement('div');
+          cell.className = 'tt-cell';
+          if (coursesInSlot.length > 0) cell.classList.add('has-course');
+          if (conflictKeys.has(key)) cell.classList.add('conflict');
+          coursesInSlot.forEach(c => {
+            const chip = document.createElement('div');
+            chip.className = 'tt-course-chip';
+            chip.textContent = c.name;
+            chip.title = `${c.name}（${c.teacher}）`;
+            cell.appendChild(chip);
+          });
+          grid.appendChild(cell);
+        });
+      });
+
+      container.appendChild(grid);
+
+      // 衝堂提示
+      const note = document.getElementById('tt-conflict-note');
+      note.textContent = conflicts.length > 0
+        ? `⚠️ 偵測到 ${conflicts.length} 處衝堂：` + conflicts.map(c => `星期${c.day} 第${c.period}節（${c.courses.map(x=>x.name).join('、')}）`).join('；')
+        : '';
+    }
+
+    function makeCell(text, className) {
+      const div = document.createElement('div');
+      div.className = className;
+      div.textContent = text;
+      return div;
+    }
+
+    // ---- 學分小計 ----
+    function renderCreditSubtotal() {
+      const sem = currentSemester();
+      const courses = getDisplayCourses();
+      const breakdown = CreditCalc.creditTypeBreakdown(courses, sem, ['系選', '必修', '非系選']);
+      const bar = document.getElementById('tt-credit-subtotal');
+      bar.innerHTML = '';
+      Object.entries(breakdown).forEach(([type, val]) => {
+        const item = document.createElement('div');
+        item.className = 'credit-subtotal-item';
+        item.innerHTML = `${type}：<strong>${val}</strong> 學分`;
+        bar.appendChild(item);
+      });
+      const total = Object.values(breakdown).reduce((a, b) => a + b, 0);
+      const totalItem = document.createElement('div');
+      totalItem.className = 'credit-subtotal-item';
+      totalItem.innerHTML = `小計：<strong>${total}</strong> 學分`;
+      bar.appendChild(totalItem);
+    }
+
+    // ---- 模擬模式：Catalog 勾選清單 ----
+    function renderSimulationPanel() {
+      const panel = document.getElementById('tt-simulation-panel');
+      const listEl = document.getElementById('tt-catalog-list');
+      if (currentMode() !== 'simulation') {
+        panel.style.display = 'none';
+        return;
+      }
+      panel.style.display = 'block';
+      listEl.innerHTML = '';
+      if (catalog.length === 0) {
+        listEl.innerHTML = '<p class="text-muted">Catalog 尚無課程，請至課程資料庫新增。</p>';
+        return;
+      }
+      catalog.forEach(c => {
+        const row = document.createElement('label');
+        row.className = 'simulation-catalog-item';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = simSelectedCourseIds.has(c.courseId);
+        cb.addEventListener('change', () => {
+          if (cb.checked) simSelectedCourseIds.add(c.courseId);
+          else simSelectedCourseIds.delete(c.courseId);
+          renderAll();
+        });
+        row.appendChild(cb);
+        const label = document.createElement('span');
+        label.textContent = `${c.name}（${c.teacher} / 星期${c.day} 第${c.periods}節 / ${c.credits}學分）`;
+        row.appendChild(label);
+        listEl.appendChild(row);
+      });
+    }
+
+    function renderAll() {
+      renderSimulationPanel();
+      renderCreditSubtotal();
+      renderGrid();
+    }
+
+    semSelect.addEventListener('change', renderAll);
+    modeSelect.addEventListener('change', () => {
+      simSelectedCourseIds.clear(); // 切換模式時清空模擬勾選，避免歷史/模擬資料混淆
+      renderAll();
+    });
+
+    renderAll();
+  })();
+  </script>
 </body>
 </html>
