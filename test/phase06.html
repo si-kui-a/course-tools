@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 06 驗收測試</title>
+  <link rel="stylesheet" href="../style.css">
+  <style>
+    .test-section { margin-bottom: 2rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); }
+    .result-line { font-size: 13px; margin: 2px 0; }
+    .pass { color: var(--color-success); }
+    .fail { color: var(--color-danger); font-weight: bold; }
+    .summary { font-size: 1rem; font-weight: bold; padding: 0.75rem 1rem; border-radius: var(--radius); margin-bottom: 1.5rem; }
+    .summary.all-pass { background: #dcfce7; color: #15803d; }
+    .summary.has-fail  { background: #fee2e2; color: #b91c1c; }
+    #test-iframe { width: 100%; height: 900px; border: 1px dashed var(--color-border); margin-top: 1rem; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Phase 06 驗收測試 — reviews.html / scholarships.html</h1>
+  <p class="text-muted mb-2">須經本地 server 開啟：<code>http://localhost:8080/test/phase06.html</code></p>
+  <div id="summary" class="summary">測試執行中...</div>
+
+  <div class="test-section"><h2>A. reviews.html（10項）</h2><div id="res-reviews"></div></div>
+  <div class="test-section"><h2>B. scholarships.html（8項）</h2><div id="res-scholarships"></div></div>
+  <div class="test-section"><h2>C. 整合（3項）</h2><div id="res-integration"></div></div>
+
+  <iframe id="test-iframe"></iframe>
+</main>
+
+<script>
+(function () {
+  let totalPass = 0, totalFail = 0;
+
+  function assert(containerId, label, condition) {
+    const el = document.getElementById(containerId);
+    const div = document.createElement('div');
+    div.className = 'result-line ' + (condition ? 'pass' : 'fail');
+    div.textContent = (condition ? '✅ PASS' : '❌ FAIL') + ' — ' + label;
+    el.appendChild(div);
+    condition ? totalPass++ : totalFail++;
+    return condition;
+  }
+
+  function waitFor(fn, timeoutMs = 4000, intervalMs = 50) {
+    return new Promise((resolve, reject) => {
+      const start = Date.now();
+      (function poll() {
+        let val;
+        try { val = fn(); } catch (e) { val = false; }
+        if (val) return resolve(val);
+        if (Date.now() - start > timeoutMs) return reject(new Error('waitFor timeout'));
+        setTimeout(poll, intervalMs);
+      })();
+    });
+  }
+
+  function loadIframe(url) {
+    const iframe = document.getElementById('test-iframe');
+    return new Promise((resolve) => {
+      iframe.addEventListener('load', () => resolve(iframe), { once: true });
+      iframe.src = url + '?t=' + Date.now();
+    });
+  }
+
+  function clearAppStorage() {
+    localStorage.removeItem('course-tools:reviews');
+    localStorage.removeItem('course-tools:scholarship-bookmarks');
+  }
+
+  async function run() {
+    // ==========================================================
+    // A. reviews.html
+    // ==========================================================
+    clearAppStorage();
+    let iframe = await loadIframe('../modules/reviews.html');
+    let doc = () => iframe.contentDocument;
+    let win = () => iframe.contentWindow;
+
+    await waitFor(() => doc().getElementById('review-list-container').children.length > 0);
+
+    // ① 空狀態
+    assert('res-reviews', '① 無資料時顯示空狀態文字',
+      doc().querySelector('#review-list-container .empty-state')?.textContent.includes('尚無評價紀錄'));
+
+    // ② 新增一筆評價，確認 localStorage 寫入
+    doc().getElementById('btn-toggle-form').click();
+    doc().getElementById('f-course-name').value = '金融社會學';
+    doc().getElementById('f-teacher').value = '趙彥寧';
+    doc().getElementById('f-semester').value = '大二上';
+    doc().getElementById('overall-score-4').checked = true;
+    doc().getElementById('difficulty-score-3').checked = true;
+    doc().getElementById('grading-score-5').checked = true;
+    doc().querySelector('#f-tags input[value="給分合理"]').checked = true;
+    doc().querySelector('#f-tags input[value="上課有趣"]').checked = true;
+    doc().getElementById('f-comment').value = '這門課老師講得很清楚，作業量適中。';
+    doc().getElementById('review-form').querySelector('button[type="submit"]').click();
+
+    const stored1 = JSON.parse(localStorage.getItem('course-tools:reviews') || '[]');
+    assert('res-reviews', '② 送出後 localStorage 寫入 1 筆', stored1.length === 1);
+    assert('res-reviews', '② 欄位正確（課名/教師/學期/三項評分/標籤）',
+      stored1[0]?.courseName === '金融社會學' &&
+      stored1[0]?.teacher === '趙彥寧' &&
+      stored1[0]?.semester === '大二上' &&
+      stored1[0]?.overallScore === 4 &&
+      stored1[0]?.difficultyScore === 3 &&
+      stored1[0]?.gradingScore === 5 &&
+      stored1[0]?.tags.includes('給分合理') && stored1[0]?.tags.includes('上課有趣'));
+
+    // ③ 卡片正確渲染
+    await waitFor(() => doc().querySelector('.card'));
+    const card1 = doc().querySelector('.card');
+    assert('res-reviews', '③ 卡片顯示課名/教師/三項評分/標籤',
+      card1.textContent.includes('金融社會學') &&
+      card1.textContent.includes('趙彥寧') &&
+      card1.querySelectorAll('.score-row > span').length === 3 &&
+      card1.querySelectorAll('.tag-chip').length === 2);
+
+    // ⑩ 送出後表單自動收合（緊接在②之後檢查較準確）
+    assert('res-reviews', '⑩ 新增表單送出後自動收合',
+      doc().getElementById('review-form').classList.contains('collapsed'));
+
+    // 新增第二筆（不同學期/教師/低分/長心得）供篩選與截斷測試
+    doc().getElementById('btn-toggle-form').click();
+    doc().getElementById('f-course-name').value = '通識體育';
+    doc().getElementById('f-teacher').value = '王老師';
+    doc().getElementById('f-semester').value = '大一上';
+    doc().getElementById('overall-score-2').checked = true;
+    doc().getElementById('difficulty-score-1').checked = true;
+    doc().getElementById('grading-score-2').checked = true;
+    doc().getElementById('f-comment').value = 'A'.repeat(95) + '結尾文字';
+    doc().getElementById('review-form').querySelector('button[type="submit"]').click();
+
+    const stored2 = JSON.parse(localStorage.getItem('course-tools:reviews') || '[]');
+    assert('res-reviews', '（輔助）第二筆新增成功，共 2 筆', stored2.length === 2);
+
+    // ⑤ 篩選：依學期
+    doc().getElementById('filter-semester').value = '大二上';
+    doc().getElementById('filter-semester').dispatchEvent(new Event('change'));
+    let visibleCards = doc().querySelectorAll('.card');
+    assert('res-reviews', '⑤ 依學期篩選僅顯示符合條目',
+      visibleCards.length === 1 && visibleCards[0].textContent.includes('金融社會學'));
+    doc().getElementById('filter-semester').value = '';
+    doc().getElementById('filter-semester').dispatchEvent(new Event('change'));
+
+    // ⑥ 篩選：依教師模糊匹配
+    doc().getElementById('filter-teacher').value = '趙';
+    doc().getElementById('filter-teacher').dispatchEvent(new Event('input'));
+    visibleCards = doc().querySelectorAll('.card');
+    assert('res-reviews', '⑥ 依教師文字模糊篩選', visibleCards.length === 1 && visibleCards[0].textContent.includes('趙彥寧'));
+    doc().getElementById('filter-teacher').value = '';
+    doc().getElementById('filter-teacher').dispatchEvent(new Event('input'));
+
+    // ⑦ 篩選：整體評分下限
+    doc().getElementById('filter-min-score').value = '4';
+    doc().getElementById('filter-min-score').dispatchEvent(new Event('change'));
+    visibleCards = doc().querySelectorAll('.card');
+    assert('res-reviews', '⑦ 低於門檻的評分不顯示', visibleCards.length === 1 && visibleCards[0].textContent.includes('金融社會學'));
+    doc().getElementById('filter-min-score').value = '';
+    doc().getElementById('filter-min-score').dispatchEvent(new Event('change'));
+
+    // ⑧ 心得截斷 + 展開
+    await waitFor(() => Array.from(doc().querySelectorAll('.card')).some(c => c.querySelector('.expand-btn')));
+    const longCard = Array.from(doc().querySelectorAll('.card')).find(c => c.querySelector('.expand-btn'));
+    const truncatedOk = longCard && longCard.querySelector('.comment-text').textContent.endsWith('…') &&
+      longCard.querySelector('.comment-text').textContent.length < 95;
+    assert('res-reviews', '⑧ 心得超過80字顯示省略號+展開按鈕', truncatedOk);
+    longCard.querySelector('.expand-btn').click();
+    const expandedCard = Array.from(doc().querySelectorAll('.card')).find(c => c.textContent.includes('結尾文字'));
+    assert('res-reviews', '⑧ 展開後顯示完整心得', expandedCard?.querySelector('.comment-text').textContent.includes('結尾文字'));
+
+    // ④ 刪除評價
+    const deleteBtn = doc().querySelector('.card .card-delete-btn');
+    deleteBtn.click();
+    const afterDelete = JSON.parse(localStorage.getItem('course-tools:reviews') || '[]');
+    assert('res-reviews', '④ 刪除後 localStorage 同步移除', afterDelete.length === 1);
+
+    // ⑨ 導覽列高亮
+    const activeNav = doc().querySelector('.app-header-nav-link.active');
+    assert('res-reviews', '⑨ 導覽列高亮 activeKey=reviews', activeNav?.textContent === '老師評價');
+
+    // ==========================================================
+    // B. scholarships.html
+    // ==========================================================
+    clearAppStorage();
+    iframe = await loadIframe('../modules/scholarships.html');
+    doc = () => iframe.contentDocument;
+    win = () => iframe.contentWindow;
+
+    await waitFor(() => doc().getElementById('scholarship-list-container').children.length > 0);
+
+    // ① 10筆靜態資料正確渲染
+    assert('res-scholarships', '① 10筆靜態資料正確渲染', doc().querySelectorAll('.card').length === 10);
+
+    // ② 類別篩選
+    doc().getElementById('filter-category').value = '政府補助';
+    doc().getElementById('filter-category').dispatchEvent(new Event('change'));
+    let cards = doc().querySelectorAll('.card');
+    assert('res-scholarships', '② 類別篩選僅顯示該類別（政府補助=4筆）',
+      cards.length === 4 && Array.from(cards).every(c => c.querySelector('.category-badge').textContent === '政府補助'));
+    doc().getElementById('filter-category').value = '';
+    doc().getElementById('filter-category').dispatchEvent(new Event('change'));
+
+    // ③ 關鍵字搜尋（note命中）
+    doc().getElementById('filter-keyword').value = '家庭年收入';
+    doc().getElementById('filter-keyword').dispatchEvent(new Event('input'));
+    cards = doc().querySelectorAll('.card');
+    assert('res-scholarships', '③ 關鍵字命中note欄位', cards.length === 1 && cards[0].textContent.includes('教育部弱勢助學金'));
+    doc().getElementById('filter-keyword').value = '';
+    doc().getElementById('filter-keyword').dispatchEvent(new Event('input'));
+
+    // ⑥ 有url的卡片顯示外部連結
+    const daadCard = Array.from(doc().querySelectorAll('.card')).find(c => c.textContent.includes('DAAD'));
+    const localCard = Array.from(doc().querySelectorAll('.card')).find(c => c.textContent.includes('東海大學書卷獎'));
+    assert('res-scholarships', '⑥ 有url的卡片顯示外部連結', !!daadCard?.querySelector('a[href]'));
+    assert('res-scholarships', '⑥ 無url的卡片不顯示外部連結', !localCard?.querySelector('a[href]'));
+
+    // ④ 書籤 toggle + 重整仍保留
+    daadCard.querySelector('.bookmark-btn').click();
+    const bm1 = JSON.parse(localStorage.getItem('course-tools:scholarship-bookmarks') || '[]');
+    assert('res-scholarships', '④ 書籤toggle寫入localStorage', bm1.includes('s005'));
+
+    iframe = await loadIframe('../modules/scholarships.html');
+    doc = () => iframe.contentDocument;
+    await waitFor(() => doc().getElementById('scholarship-list-container').children.length > 0);
+    const daadCardReloaded = Array.from(doc().querySelectorAll('.card')).find(c => c.textContent.includes('DAAD'));
+    assert('res-scholarships', '④ 重整後書籤狀態仍保留', daadCardReloaded?.querySelector('.bookmark-btn').classList.contains('bookmarked'));
+
+    // ⑤ 僅顯示已加書籤篩選
+    doc().getElementById('filter-bookmarked-only').checked = true;
+    doc().getElementById('filter-bookmarked-only').dispatchEvent(new Event('change'));
+    cards = doc().querySelectorAll('.card');
+    assert('res-scholarships', '⑤ 僅顯示已加書籤篩選', cards.length === 1 && cards[0].textContent.includes('DAAD'));
+    doc().getElementById('filter-bookmarked-only').checked = false;
+    doc().getElementById('filter-bookmarked-only').dispatchEvent(new Event('change'));
+
+    // ⑧ 導覽列高亮
+    const activeNavS = doc().querySelector('.app-header-nav-link.active');
+    assert('res-scholarships', '⑧ 導覽列高亮 activeKey=scholarships', activeNavS?.textContent === '獎助 / 實習追蹤');
+
+    // ⑦ fetch失敗時顯示錯誤訊息不crash
+    const realHtml = await fetch('../modules/scholarships.html').then(r => r.text());
+    const brokenHtml = realHtml
+      .replace('<head>', '<head><base href="' + location.origin + '/modules/">')
+      .replace("'../data/scholarships.json'", "'../data/__missing__.json'");
+    const errIframe = document.createElement('iframe');
+    errIframe.style.display = 'none';
+    document.body.appendChild(errIframe);
+    errIframe.srcdoc = brokenHtml;
+    await new Promise(resolve => errIframe.addEventListener('load', resolve, { once: true }));
+    let errOk = false;
+    try {
+      await waitFor(() => errIframe.contentDocument.querySelector('.error-state, .card-list'));
+      errOk = !!errIframe.contentDocument.querySelector('.error-state') &&
+        !errIframe.contentDocument.querySelector('.card-list');
+    } catch (e) { errOk = false; }
+    assert('res-scholarships', '⑦ fetch失敗時顯示錯誤訊息不crash', errOk);
+    errIframe.remove();
+
+    // ==========================================================
+    // C. 整合
+    // ==========================================================
+    const indexHtml = await fetch('../index.html').then(r => r.text());
+    assert('res-integration', '① index.html 含 reviews/scholarships 連結且href正確',
+      indexHtml.includes('href="modules/reviews.html"') && indexHtml.includes('href="modules/scholarships.html"'));
+
+    const headerJsText = await fetch('../js/header.js').then(r => r.text());
+    assert('res-integration', '② header.js NAV_ITEMS 含 reviews + scholarships 兩個新項目',
+      /key:\s*'reviews'/.test(headerJsText) && /key:\s*'scholarships'/.test(headerJsText));
+
+    const coursesHtml = await fetch('../modules/courses.html').then(r => r.text());
+    const creditsHtml = await fetch('../modules/credits.html').then(r => r.text());
+    const timetableHtml = await fetch('../modules/timetable.html').then(r => r.text());
+    assert('res-integration', '③ 既有4個模組頁面導覽列連結相對路徑未被破壞',
+      coursesHtml.includes('href="../style.css"') && creditsHtml.includes('href="../style.css"') && timetableHtml.includes('href="../style.css"'));
+
+    // ==========================================================
+    // 總結
+    // ==========================================================
+    const summary = document.getElementById('summary');
+    const total = totalPass + totalFail;
+    if (totalFail === 0) {
+      summary.className = 'summary all-pass';
+      summary.textContent = `✅ 全部通過 ${totalPass}/${total} — Phase 06 驗收完成`;
+    } else {
+      summary.className = 'summary has-fail';
+      summary.textContent = `❌ ${totalFail} 項失敗（通過 ${totalPass}/${total}）`;
+    }
+  }
+
+  run().catch(e => {
+    const summary = document.getElementById('summary');
+    summary.className = 'summary has-fail';
+    summary.textContent = `❌ 測試執行時發生例外：${e.message}`;
+    console.error(e);
+  });
+})();
+</script>
+</body>
+</html>
