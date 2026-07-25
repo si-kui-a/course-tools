@@ -1,4 +1,4 @@
-﻿/**
+/**
  * storage.js — 本地儲存共用元件
  *
  * 職責(僅限於此,不碰GitHub、不碰UI渲染):
@@ -133,7 +133,15 @@
   function hasUnsyncedChanges(key) {
     const result = load(key);
     if (!result) return false; // 從未存過資料,談不上未同步
-    if (result.error) return true; // 資料已損毀或型別不符,視為需要人工介入,顯示為未同步
+    if (result.error) {
+      // 損毀資料 不等於 已同步。丟出去讓上層決定要不要顯示 banner
+      try {
+        if (typeof window !== "undefined" && window.ErrorBanner) {
+          window.ErrorBanner.show("偵測到資料損毀（key: " + key + "），已避免覆寫，請檢查來源。");
+        }
+      } catch (e) {}
+      return true; // 資料已損毀或型別不符,視為需要人工介入,顯示為未同步
+    }
     const meta = getSyncMeta(key);
     if (!meta.lastSyncedHash) return true; // 從未同步過,視為有變更待同步
     return hashOf(result.payload) !== meta.lastSyncedHash;

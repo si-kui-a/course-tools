@@ -49,13 +49,13 @@
   <div id="subtotal-slot" class="subtotal-cards" style="display:none;"></div>
 </main>
 
+<script src="../js/error-banner.js"></script>
 <script src="../js/storage.js"></script>
 <script src="../js/credit-calc.js"></script>
+<script src="../js/constants.js"></script>
 <script src="../js/header.js"></script>
 <script>
   AppHeader.init({ activeKey: "timetable", inModule: true });
-
-  const SEMESTERS = ["大一上", "大一下", "大二上", "大二下", "大三上", "大三下", "大四上", "大四下"];
   const DAYS = ["一", "二", "三", "四", "五"];
   const PERIODS = [
     { n: "1", time: "8:10" }, { n: "2", time: "9:10" }, { n: "3", time: "10:20" }, { n: "4", time: "11:20" },

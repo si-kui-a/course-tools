@@ -53,9 +53,11 @@
   </div>
 </main>
 
+<script src="../js/error-banner.js"></script>
 <script src="../js/storage.js"></script>
 <script src="../js/editable-table.js"></script>
 <script src="../js/grade-calc.js"></script>
+<script src="../js/constants.js"></script>
 <script src="../js/header.js"></script>
 <script>
   AppHeader.init({ activeKey: "grades", inModule: true });
@@ -66,7 +68,6 @@
      (見交接報告第6節技術債#1,第7階段一併收斂到curriculum.json),
      本頁比照courses.html/credits.html/timetable.html的既有作法。
      ============================================================ */
-  const SEMESTERS = ["大一上", "大一下", "大二上", "大二下", "大三上", "大三下", "大四上", "大四下"];
   const CREDIT_TYPE_OPTIONS = ["系選", "必修", "非系選", "通識", "體育"];
   const RESULT_STATUS_OPTIONS = ["pending", "passed", "failed", "withdrawn"];
   const MYCOURSES_KEY = "my-courses";
