@@ -10,10 +10,365 @@
   <header id="app-header"></header>
   <main>
     <h1>老師評價</h1>
-    <p class="text-muted">Phase 05 實作</p>
+
+    <div class="collapsible-toggle">
+      <button type="button" id="btn-toggle-form" class="btn btn-primary">新增評價</button>
+    </div>
+
+    <form id="review-form" class="collapsible-body collapsed">
+      <div class="form-row">
+        <label for="f-course-name">課程名稱</label>
+        <input type="text" id="f-course-name" required>
+      </div>
+      <div class="form-row">
+        <label for="f-teacher">教師</label>
+        <input type="text" id="f-teacher" required>
+      </div>
+      <div class="form-row">
+        <label for="f-semester">學期</label>
+        <select id="f-semester" required></select>
+      </div>
+      <div class="form-row">
+        <label>整體評分</label>
+        <div id="f-overall-score" class="star-input"></div>
+      </div>
+      <div class="form-row">
+        <label>難度（1=極易，5=極難）</label>
+        <div id="f-difficulty-score" class="star-input"></div>
+      </div>
+      <div class="form-row">
+        <label>給分（1=極低，5=極高）</label>
+        <div id="f-grading-score" class="star-input"></div>
+      </div>
+      <div class="form-row">
+        <label>標籤</label>
+        <div id="f-tags" class="tag-checkbox-group"></div>
+      </div>
+      <div class="form-row">
+        <label for="f-comment">心得</label>
+        <textarea id="f-comment"></textarea>
+      </div>
+      <button type="submit" class="btn btn-primary">送出</button>
+    </form>
+
+    <div class="filter-bar">
+      <select id="filter-semester">
+        <option value="">全部學期</option>
+      </select>
+      <input type="text" id="filter-teacher" placeholder="依教師搜尋…">
+      <select id="filter-min-score">
+        <option value="">整體評分不限</option>
+        <option value="1">1 星以上</option>
+        <option value="2">2 星以上</option>
+        <option value="3">3 星以上</option>
+        <option value="4">4 星以上</option>
+        <option value="5">5 星</option>
+      </select>
+    </div>
+
+    <div id="review-list-container"></div>
   </main>
+
   <script src="../js/storage.js"></script>
   <script src="../js/editable-table.js"></script>
   <script src="../js/header.js"></script>
+  <script>
+  (function () {
+    const SEMESTERS = ['大一上','大一下','大二上','大二下','大三上','大三下','大四上','大四下'];
+    const FALLBACK_REVIEW_TAGS = ['給分合理', '點名嚴格', '作業多', '期末考為主', '報告為主', '上課有趣', '建議必修'];
+    const COMMENT_TRUNCATE_LEN = 80;
+
+    let reviews = Storage.read('reviews') || [];
+    let reviewTags = FALLBACK_REVIEW_TAGS;
+    let expandedIds = new Set();
+
+    function persist() { Storage.write('reviews', reviews); }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str ?? '';
+      return div.innerHTML;
+    }
+
+    function generateId() {
+      return Storage.hashContent(Date.now().toString() + Math.random().toString()) + '-' + Date.now().toString(36);
+    }
+
+    // ==========================================================
+    // 學期下拉初始化（表單 + 篩選）
+    // ==========================================================
+    function populateSemesterSelects() {
+      const formSel = document.getElementById('f-semester');
+      const filterSel = document.getElementById('filter-semester');
+      SEMESTERS.forEach(s => {
+        const opt1 = document.createElement('option');
+        opt1.value = s; opt1.textContent = s;
+        formSel.appendChild(opt1);
+
+        const opt2 = document.createElement('option');
+        opt2.value = s; opt2.textContent = s;
+        filterSel.appendChild(opt2);
+      });
+    }
+
+    // ==========================================================
+    // 星星評分輸入（純CSS+radio）
+    // ==========================================================
+    function buildStarInput(containerId, name) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = '';
+      for (let v = 5; v >= 1; v--) {
+        const input = document.createElement('input');
+        input.type = 'radio';
+        input.name = name;
+        input.value = String(v);
+        input.id = `${name}-${v}`;
+        if (v === 5) input.checked = false;
+        const label = document.createElement('label');
+        label.setAttribute('for', `${name}-${v}`);
+        label.textContent = '★';
+        container.appendChild(input);
+        container.appendChild(label);
+      }
+    }
+
+    function getStarValue(name) {
+      const checked = document.querySelector(`input[name="${name}"]:checked`);
+      return checked ? Number(checked.value) : 0;
+    }
+
+    function resetStarInput(name) {
+      const inputs = document.querySelectorAll(`input[name="${name}"]`);
+      inputs.forEach(i => { i.checked = false; });
+    }
+
+    function starDisplay(score) {
+      const s = Math.max(0, Math.min(5, Number(score) || 0));
+      return '★'.repeat(s) + '☆'.repeat(5 - s);
+    }
+
+    // ==========================================================
+    // 標籤 checkbox 群組
+    // ==========================================================
+    function renderTagCheckboxes() {
+      const container = document.getElementById('f-tags');
+      container.innerHTML = '';
+      reviewTags.forEach(tag => {
+        const label = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = tag;
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(tag));
+        container.appendChild(label);
+      });
+    }
+
+    function getCheckedTags() {
+      return Array.from(document.querySelectorAll('#f-tags input:checked')).map(cb => cb.value);
+    }
+
+    // ==========================================================
+    // 折疊表單
+    // ==========================================================
+    const formEl = document.getElementById('review-form');
+    const toggleBtn = document.getElementById('btn-toggle-form');
+    toggleBtn.addEventListener('click', () => {
+      formEl.classList.toggle('collapsed');
+    });
+
+    function collapseForm() {
+      formEl.classList.add('collapsed');
+    }
+
+    function resetForm() {
+      document.getElementById('f-course-name').value = '';
+      document.getElementById('f-teacher').value = '';
+      document.getElementById('f-semester').value = SEMESTERS[0];
+      resetStarInput('overall-score');
+      resetStarInput('difficulty-score');
+      resetStarInput('grading-score');
+      document.querySelectorAll('#f-tags input').forEach(cb => { cb.checked = false; });
+      document.getElementById('f-comment').value = '';
+    }
+
+    // ==========================================================
+    // 送出新增
+    // ==========================================================
+    formEl.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const courseName = document.getElementById('f-course-name').value.trim();
+      const teacher = document.getElementById('f-teacher').value.trim();
+      const semester = document.getElementById('f-semester').value;
+      const overallScore = getStarValue('overall-score');
+      const difficultyScore = getStarValue('difficulty-score');
+      const gradingScore = getStarValue('grading-score');
+      const tags = getCheckedTags();
+      const comment = document.getElementById('f-comment').value.trim();
+
+      if (!courseName || !teacher) return;
+
+      reviews.push({
+        reviewId: generateId(),
+        courseName,
+        teacher,
+        semester,
+        overallScore,
+        difficultyScore,
+        gradingScore,
+        tags,
+        comment,
+        createdAt: new Date().toISOString()
+      });
+      persist();
+      resetForm();
+      collapseForm();
+      renderList();
+    });
+
+    // ==========================================================
+    // 篩選邏輯
+    // ==========================================================
+    function getFiltered() {
+      const semester = document.getElementById('filter-semester').value;
+      const teacherKw = document.getElementById('filter-teacher').value.trim().toLowerCase();
+      const minScore = Number(document.getElementById('filter-min-score').value) || 0;
+      return reviews.filter(r => {
+        if (semester && r.semester !== semester) return false;
+        if (teacherKw && !r.teacher.toLowerCase().includes(teacherKw)) return false;
+        if (minScore && r.overallScore < minScore) return false;
+        return true;
+      });
+    }
+
+    // ==========================================================
+    // 卡片列表渲染
+    // ==========================================================
+    function renderList() {
+      const container = document.getElementById('review-list-container');
+      container.innerHTML = '';
+      const filtered = getFiltered();
+
+      if (reviews.length === 0) {
+        const p = document.createElement('p');
+        p.className = 'empty-state';
+        p.textContent = '尚無評價紀錄，點選上方「新增評價」開始';
+        container.appendChild(p);
+        return;
+      }
+
+      if (filtered.length === 0) {
+        const p = document.createElement('p');
+        p.className = 'empty-state';
+        p.textContent = '無符合篩選條件的評價。';
+        container.appendChild(p);
+        return;
+      }
+
+      const list = document.createElement('div');
+      list.className = 'card-list';
+
+      filtered.forEach(r => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.dataset.reviewId = r.reviewId;
+
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'btn btn-danger card-delete-btn';
+        delBtn.textContent = '刪除';
+        delBtn.addEventListener('click', () => {
+          reviews = reviews.filter(x => x.reviewId !== r.reviewId);
+          persist();
+          renderList();
+        });
+        card.appendChild(delBtn);
+
+        const h3 = document.createElement('h3');
+        h3.textContent = r.courseName;
+        card.appendChild(h3);
+
+        const meta = document.createElement('div');
+        meta.className = 'card-meta';
+        meta.textContent = `${r.teacher} ｜ ${r.semester}`;
+        card.appendChild(meta);
+
+        const scoreRow = document.createElement('div');
+        scoreRow.className = 'score-row';
+        scoreRow.innerHTML = `
+          <span>整體 <span class="star-display">${starDisplay(r.overallScore)}</span></span>
+          <span>難度 <span class="star-display">${starDisplay(r.difficultyScore)}</span></span>
+          <span>給分 <span class="star-display">${starDisplay(r.gradingScore)}</span></span>
+        `;
+        card.appendChild(scoreRow);
+
+        if (r.tags && r.tags.length > 0) {
+          const tagList = document.createElement('div');
+          tagList.className = 'tag-chip-list';
+          r.tags.forEach(tag => {
+            const chip = document.createElement('span');
+            chip.className = 'tag-chip';
+            chip.textContent = tag;
+            tagList.appendChild(chip);
+          });
+          card.appendChild(tagList);
+        }
+
+        if (r.comment) {
+          const isLong = r.comment.length > COMMENT_TRUNCATE_LEN;
+          const isExpanded = expandedIds.has(r.reviewId);
+          const commentP = document.createElement('p');
+          commentP.className = 'comment-text';
+          commentP.textContent = (isLong && !isExpanded)
+            ? r.comment.slice(0, COMMENT_TRUNCATE_LEN) + '…'
+            : r.comment;
+          card.appendChild(commentP);
+
+          if (isLong) {
+            const expandBtn = document.createElement('button');
+            expandBtn.type = 'button';
+            expandBtn.className = 'expand-btn';
+            expandBtn.textContent = isExpanded ? '收合' : '展開';
+            expandBtn.addEventListener('click', () => {
+              if (isExpanded) expandedIds.delete(r.reviewId);
+              else expandedIds.add(r.reviewId);
+              renderList();
+            });
+            card.appendChild(expandBtn);
+          }
+        }
+
+        list.appendChild(card);
+      });
+
+      container.appendChild(list);
+    }
+
+    document.getElementById('filter-semester').addEventListener('change', renderList);
+    document.getElementById('filter-teacher').addEventListener('input', renderList);
+    document.getElementById('filter-min-score').addEventListener('change', renderList);
+
+    // ==========================================================
+    // 初始化
+    // ==========================================================
+    function init(config) {
+      reviewTags = (config && config.reviewTags) || FALLBACK_REVIEW_TAGS;
+      populateSemesterSelects();
+      buildStarInput('f-overall-score', 'overall-score');
+      buildStarInput('f-difficulty-score', 'difficulty-score');
+      buildStarInput('f-grading-score', 'grading-score');
+      renderTagCheckboxes();
+      document.getElementById('f-semester').value = SEMESTERS[0];
+      renderList();
+    }
+
+    AppHeader.init({ activeKey: 'reviews', inModule: true });
+
+    fetch('../data/catalog-config.json')
+      .then(res => { if (!res.ok) throw new Error('fetch failed'); return res.json(); })
+      .then(cfg => init({ reviewTags: cfg.reviewTags && cfg.reviewTags.length ? cfg.reviewTags : FALLBACK_REVIEW_TAGS }))
+      .catch(() => init({ reviewTags: FALLBACK_REVIEW_TAGS }));
+  })();
+  </script>
 </body>
 </html>
