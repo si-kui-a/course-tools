@@ -1,1 +1,8 @@
-[]
+{
+  "_meta": { "version": 1, "note": "教師快取，來源為courses模組的catalog/my-courses，不作為評價主鍵" },
+  "teachers": [
+    { "id": "t001", "name": "趙彥寧", "dept": "社會系" },
+    { "id": "t002", "name": "王老師", "dept": "" },
+    { "id": "t003", "name": "盧澤彥", "dept": "" }
+  ]
+}
