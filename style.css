@@ -1,0 +1,179 @@
+/* ============================================================
+   學分/選課管理工具 — 共用樣式
+   設計方向:登記簿(ledger)式的資料工具,不做行銷頁面裝飾。
+   數字/代號用等寬字體,標籤/說明用無襯線字體,兩者分工明確。
+   ============================================================ */
+
+:root {
+  --ink: #202a33;
+  --ink-soft: #55636e;
+  --paper: #faf9f6;
+  --paper-raised: #ffffff;
+  --line: #dcdad4;
+  --line-strong: #b8b5ac;
+  --accent: #2f6f62;      /* 深松綠,登記簿印章感,非預設暖橘/暖米色 */
+  --accent-soft: #e5efec;
+  --warn: #a4732c;
+  --warn-soft: #f6ecdc;
+  --danger: #a4402f;
+  --danger-soft: #f6e4e0;
+  --radius: 4px;
+  --font-ui: -apple-system, "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif;
+  --font-data: "SF Mono", "JetBrains Mono", "Noto Sans Mono CJK TC", monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ---------- 頂部導覽列(header.js注入的容器樣式) ---------- */
+#app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  background: var(--paper-raised);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.app-header-left { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.app-header-brand { font-weight: 700; font-size: 14px; color: var(--accent); letter-spacing: .02em; white-space: nowrap; }
+.app-header-nav { display: flex; gap: 4px; flex-wrap: wrap; }
+.app-header-nav a {
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  color: var(--ink-soft);
+  text-decoration: none;
+  font-size: 13px;
+}
+.app-header-nav a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.app-header-nav a:hover:not(.active) { background: var(--line); }
+
+.sync-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-soft); }
+.sync-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.sync-dot.green { background: var(--accent); }
+.sync-dot.yellow { background: var(--warn); }
+.sync-dot.red { background: var(--danger); }
+
+/* ---------- 版面容器 ---------- */
+main { max-width: 1080px; margin: 0 auto; padding: 24px 20px 60px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 28px 0 10px; color: var(--ink-soft); font-weight: 600; letter-spacing: .02em; }
+.subtitle { color: var(--ink-soft); font-size: 13px; margin: 0 0 20px; }
+
+/* ---------- 可編輯表格(editable-table.js) ---------- */
+.et-wrap { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--paper-raised); }
+table.et-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.et-table th {
+  text-align: left;
+  padding: 8px 10px;
+  background: #f1efe9;
+  border-bottom: 1px solid var(--line-strong);
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-size: 12px;
+  white-space: nowrap;
+}
+table.et-table td {
+  padding: 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+table.et-table tr:last-child td { border-bottom: none; }
+table.et-table td .et-cell {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--ink);
+}
+table.et-table td .et-cell[data-type="number"],
+table.et-table td .et-cell.is-code { font-family: var(--font-data); }
+table.et-table td .et-cell:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--accent-soft);
+}
+table.et-table td.et-col-actions { width: 36px; text-align: center; }
+.et-del-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--ink-soft); font-size: 14px; padding: 6px;
+  border-radius: var(--radius);
+}
+.et-del-btn:hover { background: var(--danger-soft); color: var(--danger); }
+
+.et-add-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--line);
+  background: #f6f5f1;
+}
+.et-add-btn {
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  color: var(--ink-soft);
+  padding: 5px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+  font-family: var(--font-ui);
+}
+.et-add-btn:hover { border-color: var(--accent); color: var(--accent); }
+.et-empty { padding: 24px 10px; text-align: center; color: var(--ink-soft); font-size: 13px; }
+
+/* select 欄位 */
+select.et-cell { appearance: none; cursor: pointer; }
+
+/* ---------- 通用小工具 ---------- */
+.tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+.tag.green { background: var(--accent-soft); color: var(--accent); }
+.tag.yellow { background: var(--warn-soft); color: var(--warn); }
+.tag.red { background: var(--danger-soft); color: var(--danger); }
+button.primary {
+  background: var(--accent); color: #fff; border: none;
+  padding: 7px 16px; border-radius: var(--radius); cursor: pointer;
+  font-size: 13px; font-family: var(--font-ui);
+}
+button.primary:hover { background: #245a4f; }
+button.ghost {
+  background: none; border: 1px solid var(--line-strong); color: var(--ink);
+  padding: 6px 14px; border-radius: var(--radius); cursor: pointer; font-size: 13px;
+}
+button.ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ---------- 首頁儀表板(index.html) ---------- */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 18px 0 28px; }
+.stat-card { background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+.stat-card .label { font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; }
+.stat-card .value { font-family: var(--font-data); font-size: 24px; font-weight: 600; }
+.stat-card .value.warn { color: var(--warn); }
+.stat-card .value.ok { color: var(--accent); }
+.stat-card .sub { font-size: 11px; color: var(--ink-soft); margin-top: 4px; }
+
+/* 登記簿分頁索引:8學期進度,呼應「登記簿」主題的簽名元素 */
+.ledger-tabs { display: flex; gap: 6px; margin: 6px 0 24px; flex-wrap: wrap; }
+.ledger-tab { flex: 1; min-width: 74px; text-align: center; padding: 10px 4px 8px; border-radius: 6px 6px 2px 2px; border: 1px solid var(--line); background: var(--paper-raised); font-size: 11px; color: var(--ink-soft); position: relative; }
+.ledger-tab::before { content: ""; position: absolute; top: 0; left: 8px; right: 8px; height: 3px; border-radius: 2px 2px 0 0; background: var(--line-strong); }
+.ledger-tab.has-data { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.ledger-tab.has-data::before { background: var(--accent); }
+.ledger-tab .count { display: block; font-family: var(--font-data); font-size: 13px; margin-top: 3px; color: var(--ink); }
+
+.module-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 20px; }
+.module-card { display: block; background: var(--paper-raised); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; text-decoration: none; color: var(--ink); transition: border-color .15s ease; }
+.module-card:hover { border-color: var(--accent); }
+.module-card .title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.module-card .desc { font-size: 12px; color: var(--ink-soft); line-height: 1.5; }
+
+.footer-note { font-size: 11px; color: var(--ink-soft); border-top: 1px solid var(--line); padding-top: 14px; margin-top: 32px; }

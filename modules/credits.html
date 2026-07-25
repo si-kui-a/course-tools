@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<title>學分/勞作中心 — 學分/選課管理工具</title>
+<link rel="stylesheet" href="../style.css" />
+<style>
+  table.summary { width:100%; border-collapse:collapse; font-size:13px; background:var(--paper-raised); border:1px solid var(--line); border-radius:4px; overflow:hidden; }
+  table.summary th, table.summary td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:right; }
+  table.summary th { background:#f1efe9; color:var(--ink-soft); font-size:12px; text-align:right; }
+  table.summary th:first-child, table.summary td:first-child { text-align:left; }
+  table.summary input[type=number] { width:64px; text-align:right; border:1px solid var(--line-strong); border-radius:4px; padding:4px 6px; font-family:var(--font-data); }
+  .src-tag { font-size:10px; padding:1px 6px; border-radius:8px; margin-left:4px; }
+  .src-tag.detail { background:var(--accent-soft); color:var(--accent); }
+  .src-tag.fallback { background:var(--warn-soft); color:var(--warn); }
+  .grad-box { display:flex; gap:20px; padding:14px 16px; background:var(--paper-raised); border:1px solid var(--line); border-radius:4px; font-size:14px; }
+  .grad-box .num { font-family:var(--font-data); font-size:20px; font-weight:600; }
+</style>
+</head>
+<body>
+<div id="app-header"></div>
+<main>
+  <h1>學分/勞作中心</h1>
+  <p class="subtitle">
+    修習/實得學分優先由「課程資料庫」的個人課程明細自動加總;查無明細的學期則顯示估算值(黃標)。
+    此頁與課表產生器共用同一份 <code>js/credit-calc.js</code> 加總邏輯,兩處數字保證一致。
+  </p>
+
+  <h2>8學期學分總表</h2>
+  <div id="semester-table-slot"></div>
+
+  <h2>通識四領域學分</h2>
+  <div id="ge-table-slot"></div>
+
+  <h2>勞作服務時數</h2>
+  <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+    <label style="font-size:13px;">學期:</label>
+    <select id="labor-semester-select" style="padding:6px 10px;border:1px solid var(--line-strong);border-radius:4px;font-size:13px;"></select>
+    <label style="font-size:13px;">應修時數:</label>
+    <input id="labor-required-input" type="number" style="width:70px;padding:5px 8px;border:1px solid var(--line-strong);border-radius:4px;font-family:var(--font-data);" />
+    <span id="labor-gap-text" style="font-size:13px;color:var(--ink-soft);"></span>
+  </div>
+  <div id="labor-weeks-slot"></div>
+
+  <h2>畢業門檻總表</h2>
+  <div class="grad-box">
+    <div>畢業門檻總學分<br><input id="grad-threshold-input" type="number" style="width:70px;font-family:var(--font-data);font-size:16px;border:1px solid var(--line-strong);border-radius:4px;padding:4px 6px;" /></div>
+    <div>實得總學分<br><span class="num" id="grad-earned-total"></span></div>
+    <div>未取得總學分<br><span class="num" id="grad-gap"></span></div>
+  </div>
+</main>
+
+<script src="../js/storage.js"></script>
+<script src="../js/editable-table.js"></script>
+<script src="../js/credit-calc.js"></script>
+<script src="../js/header.js"></script>
+<script>
+  AppHeader.init({ activeKey: "credits", inModule: true });
+
+  const SEMESTERS = ["大一上", "大一下", "大二上", "大二下", "大三上", "大三下", "大四上", "大四下"];
+  const GE_DOMAINS = ["生態", "社會", "文化", "生活"];
+  const CURRICULUM_KEY = "curriculum";
+  const CURRICULUM_TYPE = "curriculum";
+  const MYCOURSES_KEY = "my-courses";
+  const MYCOURSES_TYPE = "my-courses";
+
+  const DEFAULT_CURRICULUM = {
+    graduationThreshold: 128,
+    semesterRequired: { "大一上":22,"大一下":22,"大二上":17.5,"大二下":22,"大三上":13,"大三下":13,"大四上":9,"大四下":9 },
+    manualFallback: {
+      "大一上": { taken: 19, earned: 19 },
+      "大一下": { taken: 26, earned: 26 },
+    },
+    generalEducation: {
+      "大一上": { 生態: 1, 社會: 0, 文化: 1, 生活: 1 },
+      "大一下": { 生態: 1, 社會: 1, 文化: 1, 生活: 1 },
+    },
+    laborWork: {
+      "大一上": { requiredHours: 12, weeks: [
+        { period: "9.10~9.16 第1週", hours: 2.5, count: 5 },
+        { period: "9.17~9.23 第2週", hours: 5, count: 5 },
+      ]},
+      "大一下": { requiredHours: 12, weeks: [
+        { period: "2.19~2.23 第1週", hours: 1.5, count: 3 },
+      ]},
+    },
+  };
+
+  function loadCurriculum() {
+    const local = Storage.load(CURRICULUM_KEY, CURRICULUM_TYPE);
+    if (local && !local.error) return local.payload;
+    Storage.save(CURRICULUM_KEY, DEFAULT_CURRICULUM, CURRICULUM_TYPE);
+    return JSON.parse(JSON.stringify(DEFAULT_CURRICULUM));
+  }
+
+  function loadMyCourses() {
+    const local = Storage.load(MYCOURSES_KEY, MYCOURSES_TYPE);
+    return local && !local.error ? local.payload : [];
+  }
+
+  function saveCurriculum(curriculum) {
+    Storage.save(CURRICULUM_KEY, curriculum, CURRICULUM_TYPE);
+  }
+
+  let curriculum = loadCurriculum();
+  const myCourses = loadMyCourses();
+
+  /* ---------------- 8學期學分總表 ---------------- */
+  function renderSemesterTable() {
+    const slot = document.getElementById("semester-table-slot");
+    const table = document.createElement("table");
+    table.className = "summary";
+    const thead = document.createElement("thead");
+    thead.innerHTML = "<tr><th>學期</th><th>應修</th><th>修習</th><th>實得</th></tr>";
+    table.appendChild(thead);
+    const tbody = document.createElement("tbody");
+
+    SEMESTERS.forEach((sem) => {
+      const taken = CreditCalc.computeTaken(myCourses, sem, curriculum.manualFallback);
+      const earned = CreditCalc.computeEarned(myCourses, sem, curriculum.manualFallback);
+      const tr = document.createElement("tr");
+
+      const tdSem = document.createElement("td");
+      tdSem.textContent = sem;
+      tr.appendChild(tdSem);
+
+      const tdReq = document.createElement("td");
+      const reqInput = document.createElement("input");
+      reqInput.type = "number";
+      reqInput.value = curriculum.semesterRequired[sem] ?? 0;
+      reqInput.addEventListener("change", (e) => {
+        curriculum.semesterRequired[sem] = Number(e.target.value) || 0;
+        saveCurriculum(curriculum);
+      });
+      tdReq.appendChild(reqInput);
+      tr.appendChild(tdReq);
+
+      const tdTaken = document.createElement("td");
+      tdTaken.innerHTML = `${taken.value} <span class="src-tag ${taken.source}">${taken.source === "detail" ? "依明細" : "估算值"}</span>`;
+      tr.appendChild(tdTaken);
+
+      const tdEarned = document.createElement("td");
+      tdEarned.innerHTML = `${earned.value} <span class="src-tag ${earned.source}">${earned.source === "detail" ? "依明細" : "估算值"}</span>`;
+      tr.appendChild(tdEarned);
+
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    slot.innerHTML = "";
+    slot.appendChild(table);
+  }
+
+  /* ---------------- 通識四領域 ---------------- */
+  function renderGeneralEducationTable() {
+    const slot = document.getElementById("ge-table-slot");
+    const table = document.createElement("table");
+    table.className = "summary";
+    const thead = document.createElement("thead");
+    thead.innerHTML = `<tr><th>學期</th>${GE_DOMAINS.map((d) => `<th>${d}</th>`).join("")}</tr>`;
+    table.appendChild(thead);
+    const tbody = document.createElement("tbody");
+
+    SEMESTERS.forEach((sem) => {
+      if (!curriculum.generalEducation[sem]) {
+        curriculum.generalEducation[sem] = { 生態: 0, 社會: 0, 文化: 0, 生活: 0 };
+      }
+      const tr = document.createElement("tr");
+      const tdSem = document.createElement("td");
+      tdSem.textContent = sem;
+      tr.appendChild(tdSem);
+      GE_DOMAINS.forEach((domain) => {
+        const td = document.createElement("td");
+        const input = document.createElement("input");
+        input.type = "number";
+        input.value = curriculum.generalEducation[sem][domain] ?? 0;
+        input.addEventListener("change", (e) => {
+          curriculum.generalEducation[sem][domain] = Number(e.target.value) || 0;
+          saveCurriculum(curriculum);
+        });
+        td.appendChild(input);
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    slot.innerHTML = "";
+    slot.appendChild(table);
+  }
+
+  /* ---------------- 勞作服務時數 ---------------- */
+  let laborTable = null;
+
+  function currentLaborSemester() {
+    return document.getElementById("labor-semester-select").value;
+  }
+
+  function ensureLaborEntry(sem) {
+    if (!curriculum.laborWork[sem]) {
+      curriculum.laborWork[sem] = { requiredHours: 0, weeks: [] };
+    }
+    return curriculum.laborWork[sem];
+  }
+
+  function renderLaborSection() {
+    const select = document.getElementById("labor-semester-select");
+    select.innerHTML = SEMESTERS.map((s) => `<option value="${s}">${s}</option>`).join("");
+    select.value = currentLaborSemester() || SEMESTERS[0];
+
+    function renderForSemester(sem) {
+      const entry = ensureLaborEntry(sem);
+      document.getElementById("labor-required-input").value = entry.requiredHours;
+
+      laborTable = new EditableTable(document.getElementById("labor-weeks-slot"), {
+        fields: [
+          { key: "period", label: "週次區間", type: "text" },
+          { key: "hours", label: "時數", type: "number" },
+          { key: "count", label: "次數", type: "number" },
+        ],
+        data: entry.weeks,
+        emptyText: "本學期尚無勞作紀錄,點下方新增。",
+        newRowDefaults: () => ({ period: "", hours: 0, count: 0 }),
+        onChange: (newData) => {
+          curriculum.laborWork[sem].weeks = newData;
+          saveCurriculum(curriculum);
+          updateLaborGapText(sem);
+        },
+      });
+      updateLaborGapText(sem);
+    }
+
+    function updateLaborGapText(sem) {
+      const entry = ensureLaborEntry(sem);
+      const result = CreditCalc.computeLaborGap(entry.weeks, entry.requiredHours);
+      const gapText =
+        result.gap > 0
+          ? `尚差 ${result.gap} 小時`
+          : result.gap < 0
+          ? `已超額 ${-result.gap} 小時`
+          : "剛好達標";
+      document.getElementById("labor-gap-text").textContent =
+        `已累計 ${result.total} 小時 ・ ${gapText}`;
+    }
+
+    select.addEventListener("change", () => renderForSemester(select.value));
+    document.getElementById("labor-required-input").addEventListener("change", (e) => {
+      const sem = currentLaborSemester();
+      ensureLaborEntry(sem).requiredHours = Number(e.target.value) || 0;
+      saveCurriculum(curriculum);
+      updateLaborGapText(sem);
+    });
+
+    renderForSemester(select.value);
+  }
+
+  /* ---------------- 畢業門檻總表 ---------------- */
+  function renderGraduationBox() {
+    document.getElementById("grad-threshold-input").value = curriculum.graduationThreshold;
+    const totalEarned = CreditCalc.computeTotalEarned(myCourses, SEMESTERS, curriculum.manualFallback);
+    const gap = CreditCalc.computeGraduationGap(myCourses, SEMESTERS, curriculum.manualFallback, curriculum.graduationThreshold);
+    document.getElementById("grad-earned-total").textContent = totalEarned;
+    document.getElementById("grad-gap").textContent = gap > 0 ? `尚差 ${gap}` : `已達標(超前 ${-gap}）`;
+
+    document.getElementById("grad-threshold-input").addEventListener("change", (e) => {
+      curriculum.graduationThreshold = Number(e.target.value) || 0;
+      saveCurriculum(curriculum);
+      renderGraduationBox();
+    });
+  }
+
+  renderSemesterTable();
+  renderGeneralEducationTable();
+  renderLaborSection();
+  renderGraduationBox();
+</script>
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<title>第一階段測試 — storage.js + editable-table.js</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div id="app-header"></div>
+<main>
+  <h1>第一階段建置驗收</h1>
+  <p class="subtitle">
+    本頁只用來驗證兩個基礎元件是否正常運作,不是正式模組頁。
+    正式的「課程資料庫」模組頁(第2步)會在確認這頁沒問題後才動工。
+  </p>
+
+  <h2>狀態</h2>
+  <p id="status-line" style="font-size:13px;color:var(--ink-soft);"></p>
+  <p>
+    <button class="ghost" id="reset-btn">重置示範資料</button>
+    <button class="ghost" id="mark-synced-btn">模擬「已同步」(清除未同步燈號)</button>
+  </p>
+
+  <h2>示範表格(欄位型別涵蓋 text / number / select,對應未來 my-courses 的欄位設計)</h2>
+  <div id="table-slot"></div>
+
+  <h2>驗收項目</h2>
+  <ul style="font-size:13px;color:var(--ink-soft);">
+    <li>✅ 開啟本頁後,若之前編輯過,資料應從 localStorage 自動讀回(不需重新輸入)</li>
+    <li>✅ 點儲存格可直接編輯,離開欄位(blur)即存檔</li>
+    <li>✅ 「學分類別」欄為下拉選單,不可自由輸入(對應v2的 creditType enum設計)</li>
+    <li>✅ 按「新增一列」會加入一筆空白列,可直接編輯</li>
+    <li>✅ 按列右側「✕」可刪除該列</li>
+    <li>✅ 上方狀態列會顯示「未同步變更」燈號,編輯後應由綠轉黃</li>
+    <li>✅ 按「模擬已同步」後燈號應轉回綠色(驗證 hasUnsyncedChanges 邏輯正確)</li>
+  </ul>
+</main>
+
+<script src="js/storage.js"></script>
+<script src="js/editable-table.js"></script>
+<script src="js/header.js"></script>
+<script>
+  AppHeader.init({ inModule: false });
+
+  const STORAGE_KEY = "demo-courses";
+  const TYPE = "demo-courses";
+
+  const sampleData = [
+    { name: "文化人類學", teacher: "趙彥寧", credits: 3, creditType: "系選" },
+    { name: "金融社會學", teacher: "陳鈺偉", credits: 3, creditType: "非系選" },
+  ];
+
+  function loadInitialData() {
+    const result = Storage.load(STORAGE_KEY, TYPE);
+    if (!result) {
+      Storage.save(STORAGE_KEY, sampleData, TYPE);
+      return sampleData;
+    }
+    if (result.error) {
+      console.warn("[demo] 讀取錯誤:", result.error);
+      return sampleData;
+    }
+    return result.payload;
+  }
+
+  function updateStatusLine() {
+    const unsynced = Storage.hasUnsyncedChanges(STORAGE_KEY);
+    const meta = Storage.getSyncMeta(STORAGE_KEY);
+    const dotClass = unsynced ? "yellow" : "green";
+    const dotLabel = unsynced ? "有未同步變更" : "已同步";
+    document.getElementById("status-line").innerHTML =
+      `<span class="sync-dot ${dotClass}" style="margin-right:6px;"></span>${dotLabel}` +
+      (meta.lastSyncTime ? ` ・ 上次標記同步時間:${meta.lastSyncTime}` : " ・ 尚未同步過");
+  }
+
+  const table = new EditableTable(document.getElementById("table-slot"), {
+    fields: [
+      { key: "name", label: "課名", type: "text" },
+      { key: "teacher", label: "老師", type: "text" },
+      { key: "credits", label: "學分", type: "number" },
+      { key: "creditType", label: "學分類別", type: "select", options: ["系選", "必修", "非系選", "通識", "體育"] },
+    ],
+    data: loadInitialData(),
+    newRowDefaults: () => ({ name: "", teacher: "", credits: 0, creditType: "系選" }),
+    onChange: (newData) => {
+      Storage.save(STORAGE_KEY, newData, TYPE);
+      updateStatusLine();
+    },
+  });
+
+  document.getElementById("reset-btn").addEventListener("click", () => {
+    Storage.save(STORAGE_KEY, sampleData, TYPE);
+    table.setData(sampleData);
+    updateStatusLine();
+  });
+
+  document.getElementById("mark-synced-btn").addEventListener("click", () => {
+    const current = Storage.load(STORAGE_KEY, TYPE);
+    if (current && !current.error) {
+      Storage.setSyncMeta(STORAGE_KEY, {
+        lastSha: "demo-sha",
+        lastSyncTime: new Date().toLocaleString("zh-TW"),
+        lastSyncedHash: Storage.hashOf(current.payload),
+      });
+    }
+    updateStatusLine();
+  });
+
+  updateStatusLine();
+</script>
+</body>
+</html>

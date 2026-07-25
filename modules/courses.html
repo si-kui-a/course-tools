@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<title>課程資料庫 — 學分/選課管理工具</title>
+<link rel="stylesheet" href="../style.css" />
+</head>
+<body>
+<div id="app-header"></div>
+<main>
+  <h1>課程資料庫</h1>
+  <p class="subtitle">
+    上半部是「選修課程庫」(catalog,校方公開資訊,可瀏覽亦可編輯);
+    下半部是「我的課程」(my-courses,個人選課/預選紀錄,唯一寫入入口,其他模組都會讀這裡)。
+  </p>
+  <p id="fetch-note" style="font-size:12px;color:var(--warn);"></p>
+
+  <h2>選修課程庫(catalog)</h2>
+  <div style="display:flex; gap:10px; margin-bottom:10px; flex-wrap:wrap;">
+    <input id="filter-teacher" type="text" placeholder="搜尋老師姓名" style="padding:6px 10px;border:1px solid var(--line-strong);border-radius:4px;font-size:13px;" />
+    <select id="filter-day" style="padding:6px 10px;border:1px solid var(--line-strong);border-radius:4px;font-size:13px;">
+      <option value="">全部星期</option>
+      <option value="一">星期一</option>
+      <option value="二">星期二</option>
+      <option value="三">星期三</option>
+      <option value="四">星期四</option>
+      <option value="五">星期五</option>
+    </select>
+    <select id="filter-category" style="padding:6px 10px;border:1px solid var(--line-strong);border-radius:4px;font-size:13px;">
+      <option value="">全部類別</option>
+      <option value="系上選修">系上選修</option>
+      <option value="跨域課程">跨域課程</option>
+      <option value="通識">通識</option>
+    </select>
+    <button class="ghost" id="filter-clear">清除篩選</button>
+  </div>
+  <div id="catalog-slot"></div>
+
+  <h2>我的課程(my-courses)</h2>
+  <p id="my-status-line" style="font-size:12px;color:var(--ink-soft);"></p>
+  <div id="my-courses-slot"></div>
+</main>
+
+<script src="../js/storage.js"></script>
+<script src="../js/editable-table.js"></script>
+<script src="../js/header.js"></script>
+<script>
+  AppHeader.init({ activeKey: "courses", inModule: true });
+
+  /* ============================================================
+     常數區
+     semesterOptions 目前先寫死在這裡(暫代 curriculum.json 尚未建置)。
+     第三階段(學分/勞作中心)會把此清單搬進 curriculum.json.enumOptions,
+     屆時本頁需改為讀取共用來源,這是已知、預期中的階段性技術債,非缺陷。
+     ============================================================ */
+  const SEMESTER_OPTIONS = ["大一上", "大一下", "大二上", "大二下", "大三上", "大三下", "大四上", "大四下"];
+  const CREDIT_TYPE_OPTIONS = ["系選", "必修", "非系選", "通識", "體育"];
+  const STATUS_OPTIONS = ["planned", "selected"];
+  const RESULT_STATUS_OPTIONS = ["pending", "passed", "failed", "withdrawn"];
+  const CATEGORY_OPTIONS = ["系上選修", "跨域課程", "通識"];
+
+  const CATALOG_KEY = "catalog";
+  const CATALOG_TYPE = "catalog";
+  const MYCOURSES_KEY = "my-courses";
+  const MYCOURSES_TYPE = "my-courses";
+
+  // file:// 開啟時fetch會失敗(CORS),提供內建示範資料當退路,
+  // 部署到GitHub Pages(https)後fetch正常運作,不需改程式碼。
+  const FALLBACK_CATALOG = [
+    { _id: "cat-0001", courseId: "1938", name: "金融社會學", teacher: "陳鈺偉", day: "二", periods: "2,3,4", credits: 3, category: "系上選修", note: "" },
+    { _id: "cat-0002", courseId: "2495", name: "建築實例分析", teacher: "盧澤彥", day: "二", periods: "3,4", credits: 2, category: "跨域課程", note: "" },
+    { _id: "cat-0003", courseId: "1933", name: "文化人類學", teacher: "趙彥寧", day: "一", periods: "2,3,4", credits: 3, category: "系上選修", note: "推廣部隨班附讀請獲得老師同意" },
+  ];
+
+  function genId(prefix) {
+    return prefix + "-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+
+  /* ============================================================
+     載入 catalog:優先讀 localStorage(可能已編輯過),
+     其次 fetch 公開repo的 data/catalog.json,最後才用內建示範資料。
+     ============================================================ */
+  async function loadCatalog() {
+    const local = Storage.load(CATALOG_KEY, CATALOG_TYPE);
+    if (local && !local.error) return local.payload;
+
+    try {
+      const res = await fetch("../data/catalog.json");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const json = await res.json();
+      Storage.save(CATALOG_KEY, json, CATALOG_TYPE);
+      return json;
+    } catch (err) {
+      document.getElementById("fetch-note").textContent =
+        "無法從 data/catalog.json 自動讀取(本機以 file:// 開啟時常見此狀況,部署到GitHub Pages後會正常),已改用內建示範資料。";
+      Storage.save(CATALOG_KEY, FALLBACK_CATALOG, CATALOG_TYPE);
+      return FALLBACK_CATALOG;
+    }
+  }
+
+  function loadMyCourses() {
+    const local = Storage.load(MYCOURSES_KEY, MYCOURSES_TYPE);
+    if (local && !local.error) return local.payload;
+    return [];
+  }
+
+  function updateMyStatusLine() {
+    const unsynced = Storage.hasUnsyncedChanges(MYCOURSES_KEY);
+    const dot = unsynced ? "yellow" : "green";
+    const label = unsynced ? "有未同步變更(GitHub同步將於第六階段接上)" : "本機已記錄";
+    document.getElementById("my-status-line").innerHTML =
+      `<span class="sync-dot ${dot}" style="margin-right:6px;"></span>${label}`;
+  }
+
+  /* ============================================================
+     初始化
+     ============================================================ */
+  (async function init() {
+    const catalogData = await loadCatalog();
+
+    const catalogTable = new EditableTable(document.getElementById("catalog-slot"), {
+      fields: [
+        { key: "courseId", label: "課號", type: "text", mono: true },
+        { key: "name", label: "課名", type: "text" },
+        { key: "teacher", label: "老師", type: "text" },
+        { key: "day", label: "星期", type: "text" },
+        { key: "periods", label: "節次", type: "text", mono: true },
+        { key: "credits", label: "學分", type: "number" },
+        { key: "category", label: "類別", type: "select", options: CATEGORY_OPTIONS },
+        { key: "note", label: "備註", type: "text" },
+      ],
+      data: catalogData,
+      newRowDefaults: () => ({
+        _id: genId("cat"),
+        courseId: "",
+        name: "",
+        teacher: "",
+        day: "一",
+        periods: "",
+        credits: 0,
+        category: CATEGORY_OPTIONS[0],
+        note: "",
+      }),
+      rowActions: [
+        {
+          label: "＋ 預選",
+          title: "加入我的預選課程",
+          onClick: (row) => addToMyCourses(row),
+        },
+      ],
+      onChange: (newData) => {
+        Storage.save(CATALOG_KEY, newData, CATALOG_TYPE);
+      },
+    });
+
+    // 篩選:只影響顯示,不動catalogData本身(見editable-table.js的filterFn設計)
+    function applyFilter() {
+      const teacherQ = document.getElementById("filter-teacher").value.trim();
+      const dayQ = document.getElementById("filter-day").value;
+      const categoryQ = document.getElementById("filter-category").value;
+      catalogTable.setFilter((row) => {
+        if (teacherQ && !(row.teacher || "").includes(teacherQ)) return false;
+        if (dayQ && row.day !== dayQ) return false;
+        if (categoryQ && row.category !== categoryQ) return false;
+        return true;
+      });
+    }
+    document.getElementById("filter-teacher").addEventListener("input", applyFilter);
+    document.getElementById("filter-day").addEventListener("change", applyFilter);
+    document.getElementById("filter-category").addEventListener("change", applyFilter);
+    document.getElementById("filter-clear").addEventListener("click", () => {
+      document.getElementById("filter-teacher").value = "";
+      document.getElementById("filter-day").value = "";
+      document.getElementById("filter-category").value = "";
+      catalogTable.setFilter(null);
+    });
+
+    const myCoursesTable = new EditableTable(document.getElementById("my-courses-slot"), {
+      fields: [
+        { key: "semester", label: "學期", type: "select", options: SEMESTER_OPTIONS },
+        { key: "status", label: "狀態", type: "select", options: STATUS_OPTIONS },
+        { key: "creditType", label: "學分類別", type: "select", options: CREDIT_TYPE_OPTIONS },
+        { key: "credits", label: "學分", type: "number" },
+        { key: "name", label: "課名", type: "text" },
+        { key: "teacher", label: "老師", type: "text" },
+        { key: "day", label: "星期", type: "text" },
+        { key: "periods", label: "節次", type: "text", mono: true },
+        { key: "resultStatus", label: "結果", type: "select", options: RESULT_STATUS_OPTIONS },
+        { key: "note", label: "備註", type: "text" },
+      ],
+      data: loadMyCourses(),
+      emptyText: "尚無個人課程紀錄。可從上方課程庫按「＋ 預選」加入,或直接新增一列手動輸入。",
+      newRowDefaults: () => ({
+        instanceId: genId("mc"),
+        semester: SEMESTER_OPTIONS[0],
+        status: "planned",
+        creditType: CREDIT_TYPE_OPTIONS[0],
+        credits: 0,
+        name: "",
+        teacher: "",
+        day: "",
+        periods: "",
+        resultStatus: "pending",
+        note: "",
+      }),
+      onChange: (newData) => {
+        Storage.save(MYCOURSES_KEY, newData, MYCOURSES_TYPE);
+        updateMyStatusLine();
+      },
+    });
+
+    function addToMyCourses(catalogRow) {
+      myCoursesTable.pushRow({
+        instanceId: genId("mc"),
+        semester: SEMESTER_OPTIONS[0],
+        status: "planned",
+        creditType: CREDIT_TYPE_OPTIONS[0],
+        credits: catalogRow.credits,
+        name: catalogRow.name,
+        teacher: catalogRow.teacher,
+        day: catalogRow.day,
+        periods: catalogRow.periods,
+        resultStatus: "pending",
+        note: "",
+      });
+      Storage.save(MYCOURSES_KEY, myCoursesTable.getData(), MYCOURSES_TYPE);
+      updateMyStatusLine();
+    }
+
+    updateMyStatusLine();
+  })();
+</script>
+</body>
+</html>

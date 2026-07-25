@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<title>課表產生器 — 學分/選課管理工具</title>
+<link rel="stylesheet" href="../style.css" />
+<style>
+  .tt-controls { display:flex; align-items:center; gap:14px; margin-bottom:14px; flex-wrap:wrap; }
+  .tt-controls select { padding:6px 10px; border:1px solid var(--line-strong); border-radius:4px; font-size:13px; }
+  .mode-toggle { display:flex; border:1px solid var(--line-strong); border-radius:4px; overflow:hidden; }
+  .mode-toggle button { border:none; background:var(--paper-raised); padding:6px 14px; font-size:13px; cursor:pointer; color:var(--ink-soft); }
+  .mode-toggle button.active { background:var(--accent); color:#fff; }
+
+  table.grid { width:100%; border-collapse:collapse; font-size:12px; background:var(--paper-raised); border:1px solid var(--line); }
+  table.grid th, table.grid td { border:1px solid var(--line); padding:6px 4px; text-align:center; vertical-align:top; height:44px; }
+  table.grid th { background:#f1efe9; color:var(--ink-soft); font-size:11px; }
+  table.grid td.period-col { background:#f6f5f1; color:var(--ink-soft); font-family:var(--font-data); font-size:11px; white-space:nowrap; }
+  table.grid tr.lunch-row td { height:16px; background:#efeee9; color:var(--ink-soft); font-size:10px; }
+  .course-chip { display:block; background:var(--accent-soft); color:var(--accent); border-radius:3px; padding:2px 4px; font-size:11px; margin-bottom:2px; line-height:1.3; }
+  td.conflict { background:var(--danger-soft); }
+  td.conflict .course-chip { background:var(--danger-soft); color:var(--danger); border:1px solid var(--danger); }
+
+  .subtotal-cards { display:flex; gap:12px; margin-top:16px; }
+  .subtotal-card { flex:1; background:var(--paper-raised); border:1px solid var(--line); border-radius:4px; padding:12px 16px; }
+  .subtotal-card .label { font-size:12px; color:var(--ink-soft); }
+  .subtotal-card .value { font-family:var(--font-data); font-size:22px; font-weight:600; margin-top:4px; }
+</style>
+</head>
+<body>
+<div id="app-header"></div>
+<main>
+  <h1>課表產生器</h1>
+  <p class="subtitle">
+    歷史檢視顯示已選(status=selected)課程,唯讀。模擬編輯顯示預選(status=planned)課程,並即時算學分小計。
+    課程本身的新增/編輯請至「課程資料庫」模組,本頁只負責畫課表與算小計。
+  </p>
+
+  <div class="tt-controls">
+    <label style="font-size:13px;">學期:</label>
+    <select id="semester-select"></select>
+    <div class="mode-toggle">
+      <button id="mode-history" class="active" type="button">歷史檢視</button>
+      <button id="mode-simulate" type="button">模擬編輯</button>
+    </div>
+  </div>
+
+  <div id="grid-slot"></div>
+
+  <div id="subtotal-slot" class="subtotal-cards" style="display:none;"></div>
+</main>
+
+<script src="../js/storage.js"></script>
+<script src="../js/credit-calc.js"></script>
+<script src="../js/header.js"></script>
+<script>
+  AppHeader.init({ activeKey: "timetable", inModule: true });
+
+  const SEMESTERS = ["大一上", "大一下", "大二上", "大二下", "大三上", "大三下", "大四上", "大四下"];
+  const DAYS = ["一", "二", "三", "四", "五"];
+  const PERIODS = [
+    { n: "1", time: "8:10" }, { n: "2", time: "9:10" }, { n: "3", time: "10:20" }, { n: "4", time: "11:20" },
+    { n: "lunch", time: "12:20", label: "午休" },
+    { n: "5", time: "13:10" }, { n: "6", time: "14:10" }, { n: "7", time: "15:20" }, { n: "8", time: "16:20" },
+    { n: "9", time: "17:20" }, { n: "10", time: "18:20" }, { n: "11", time: "19:20" }, { n: "12", time: "20:20" },
+  ];
+
+  const MYCOURSES_KEY = "my-courses";
+  const MYCOURSES_TYPE = "my-courses";
+
+  // 示範資料:demo1/demo4 刻意排在同一天同一節,用來驗證衝堂偵測
+  const FALLBACK_MYCOURSES = [
+    { instanceId: "demo1", semester: "大二上", status: "selected", creditType: "系選", credits: 3, name: "文化人類學", teacher: "趙彥寧", day: "一", periods: "2,3,4", resultStatus: "passed" },
+    { instanceId: "demo2", semester: "大二上", status: "selected", creditType: "必修", credits: 2, name: "社會統計學", teacher: "王老師", day: "三", periods: "5,6", resultStatus: "pending" },
+    { instanceId: "demo3", semester: "大二上", status: "planned", creditType: "非系選", credits: 2, name: "建築實例分析", teacher: "盧澤彥", day: "二", periods: "3,4", resultStatus: "pending" },
+    { instanceId: "demo4", semester: "大二上", status: "selected", creditType: "系選", credits: 3, name: "衝堂測試課", teacher: "測試老師", day: "一", periods: "2", resultStatus: "pending" },
+  ];
+
+  function loadMyCourses() {
+    const local = Storage.load(MYCOURSES_KEY, MYCOURSES_TYPE);
+    if (local && !local.error && local.payload.length > 0) return local.payload;
+    Storage.save(MYCOURSES_KEY, FALLBACK_MYCOURSES, MYCOURSES_TYPE);
+    return FALLBACK_MYCOURSES;
+  }
+
+  const myCourses = loadMyCourses();
+  let currentMode = "history"; // 'history' | 'simulate'
+
+  function currentSemester() {
+    return document.getElementById("semester-select").value;
+  }
+
+  function currentStatusForMode() {
+    return currentMode === "history" ? "selected" : "planned";
+  }
+
+  /** 解析 periods 字串(如"2,3,4")成陣列 */
+  function parsePeriods(periodsStr) {
+    return String(periodsStr || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  function coursesInCell(day, periodN, filteredCourses) {
+    return filteredCourses.filter((c) => c.day === day && parsePeriods(c.periods).includes(periodN));
+  }
+
+  function renderGrid() {
+    const semester = currentSemester();
+    const status = currentStatusForMode();
+    const filtered = myCourses.filter((c) => c.semester === semester && c.status === status);
+
+    const table = document.createElement("table");
+    table.className = "grid";
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    headRow.innerHTML = "<th>節次</th>" + DAYS.map((d) => `<th>星期${d}</th>`).join("");
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    PERIODS.forEach((p) => {
+      const tr = document.createElement("tr");
+      if (p.n === "lunch") {
+        tr.className = "lunch-row";
+        const td = document.createElement("td");
+        td.colSpan = DAYS.length + 1;
+        td.textContent = `${p.label}(${p.time})`;
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
+      const periodTd = document.createElement("td");
+      periodTd.className = "period-col";
+      periodTd.textContent = `第${p.n}節\n${p.time}`;
+      periodTd.style.whiteSpace = "pre-line";
+      tr.appendChild(periodTd);
+
+      DAYS.forEach((day) => {
+        const td = document.createElement("td");
+        const courses = coursesInCell(day, p.n, filtered);
+        if (courses.length > 1) td.classList.add("conflict");
+        courses.forEach((c) => {
+          const chip = document.createElement("span");
+          chip.className = "course-chip";
+          chip.textContent = c.name;
+          td.appendChild(chip);
+        });
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+
+    const slot = document.getElementById("grid-slot");
+    slot.innerHTML = "";
+    slot.appendChild(table);
+  }
+
+  function renderSubtotals() {
+    const subtotalSlot = document.getElementById("subtotal-slot");
+    if (currentMode !== "simulate") {
+      subtotalSlot.style.display = "none";
+      return;
+    }
+    subtotalSlot.style.display = "flex";
+    const semester = currentSemester();
+    // credit-calc.js的computeCreditTypeSubtotal不篩status,呼叫端需先篩好子集合再傳入(見credit-calc.js註解)
+    const plannedThisSemester = myCourses.filter((c) => c.semester === semester && c.status === "planned");
+
+    const items = [
+      { label: "系選學分", type: "系選" },
+      { label: "必修學分", type: "必修" },
+      { label: "非系選修學分", type: "非系選" },
+    ];
+    subtotalSlot.innerHTML = items
+      .map((item) => {
+        const value = CreditCalc.computeCreditTypeSubtotal(plannedThisSemester, semester, item.type);
+        return `<div class="subtotal-card"><div class="label">${item.label}</div><div class="value">${value}</div></div>`;
+      })
+      .join("");
+  }
+
+  function renderAll() {
+    renderGrid();
+    renderSubtotals();
+  }
+
+  function setMode(mode) {
+    currentMode = mode;
+    document.getElementById("mode-history").classList.toggle("active", mode === "history");
+    document.getElementById("mode-simulate").classList.toggle("active", mode === "simulate");
+    renderAll();
+  }
+
+  const semSelect = document.getElementById("semester-select");
+  semSelect.innerHTML = SEMESTERS.map((s) => `<option value="${s}">${s}</option>`).join("");
+  semSelect.value = "大二上"; // 對應示範資料所在學期
+  semSelect.addEventListener("change", renderAll);
+
+  document.getElementById("mode-history").addEventListener("click", () => setMode("history"));
+  document.getElementById("mode-simulate").addEventListener("click", () => setMode("simulate"));
+
+  renderAll();
+</script>
+</body>
+</html>

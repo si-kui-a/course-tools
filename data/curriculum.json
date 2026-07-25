@@ -1,0 +1,32 @@
+{
+  "graduationThreshold": 128,
+  "semesterRequired": {
+    "大一上": 22, "大一下": 22,
+    "大二上": 17.5, "大二下": 22,
+    "大三上": 13, "大三下": 13,
+    "大四上": 9, "大四下": 9
+  },
+  "manualFallback": {
+    "大一上": { "taken": 19, "earned": 19 },
+    "大一下": { "taken": 26, "earned": 26 }
+  },
+  "generalEducation": {
+    "大一上": { "生態": 1, "社會": 0, "文化": 1, "生活": 1 },
+    "大一下": { "生態": 1, "社會": 1, "文化": 1, "生活": 1 }
+  },
+  "laborWork": {
+    "大一上": {
+      "requiredHours": 12,
+      "weeks": [
+        { "period": "9.10~9.16 第1週", "hours": 2.5, "count": 5 },
+        { "period": "9.17~9.23 第2週", "hours": 5, "count": 5 }
+      ]
+    },
+    "大一下": {
+      "requiredHours": 12,
+      "weeks": [
+        { "period": "2.19~2.23 第1週", "hours": 1.5, "count": 3 }
+      ]
+    }
+  }
+}

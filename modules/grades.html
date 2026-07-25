@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<title>加權成績試算 — 學分/選課管理工具</title>
+<link rel="stylesheet" href="../style.css" />
+<style>
+  table.summary { width:100%; border-collapse:collapse; font-size:13px; background:var(--paper-raised); border:1px solid var(--line); border-radius:4px; overflow:hidden; }
+  table.summary th, table.summary td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:right; }
+  table.summary th { background:#f1efe9; color:var(--ink-soft); font-size:12px; text-align:right; }
+  table.summary th:first-child, table.summary td:first-child { text-align:left; }
+  .src-tag { font-size:10px; padding:1px 6px; border-radius:8px; margin-left:4px; }
+  .src-tag.ok { background:var(--accent-soft); color:var(--accent); }
+  .src-tag.empty { background:var(--warn-soft); color:var(--warn); }
+  .grad-box { display:flex; gap:20px; padding:14px 16px; background:var(--paper-raised); border:1px solid var(--line); border-radius:4px; font-size:14px; }
+  .grad-box .num { font-family:var(--font-data); font-size:20px; font-weight:600; }
+  .grad-box .unit { font-size:12px; color:var(--ink-soft); }
+</style>
+</head>
+<body>
+<div id="app-header"></div>
+<main>
+  <h1>加權成績試算</h1>
+  <p class="subtitle">
+    本頁只負責「填分數、算加權平均分數/GPA」,課程本身的新增/刪除請至「課程資料庫」模組。
+    只有「已選」(status=selected)且非退選的課程會被納入計算;若某學期尚無填分課程,
+    平均分數/GPA會顯示為「尚無資料」而非0,避免誤導。GPA對照表為常見估算值,非官方標準,
+    僅供試算參考。
+  </p>
+  <p id="fetch-note" style="font-size:12px;color:var(--warn);"></p>
+
+  <h2>單學期成績登錄與試算</h2>
+  <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+    <label style="font-size:13px;">學期:</label>
+    <select id="semester-select" style="padding:6px 10px;border:1px solid var(--line-strong);border-radius:4px;font-size:13px;"></select>
+  </div>
+  <div id="grades-table-slot"></div>
+
+  <div class="grad-box" style="margin-top:14px;">
+    <div>本學期加權平均<br><span class="num" id="sem-avg">—</span> <span class="unit">分</span></div>
+    <div>本學期加權GPA<br><span class="num" id="sem-gpa">—</span> <span class="unit">/ 4.3</span></div>
+    <div>計入學分數<br><span class="num" id="sem-credits">—</span></div>
+  </div>
+
+  <h2>8學期總覽</h2>
+  <div id="overview-table-slot"></div>
+
+  <h2>累計總平均</h2>
+  <div class="grad-box">
+    <div>累計加權平均<br><span class="num" id="cum-avg">—</span> <span class="unit">分</span></div>
+    <div>累計加權GPA<br><span class="num" id="cum-gpa">—</span> <span class="unit">/ 4.3</span></div>
+    <div>累計計入學分數<br><span class="num" id="cum-credits">—</span></div>
+  </div>
+</main>
+
+<script src="../js/storage.js"></script>
+<script src="../js/editable-table.js"></script>
+<script src="../js/grade-calc.js"></script>
+<script src="../js/header.js"></script>
+<script>
+  AppHeader.init({ activeKey: "grades", inModule: true });
+
+  /* ============================================================
+     常數區
+     SEMESTER/CREDIT_TYPE/RESULT_STATUS 清單目前仍分散寫死於各模組
+     (見交接報告第6節技術債#1,第7階段一併收斂到curriculum.json),
+     本頁比照courses.html/credits.html/timetable.html的既有作法。
+     ============================================================ */
+  const SEMESTERS = ["大一上", "大一下", "大二上", "大二下", "大三上", "大三下", "大四上", "大四下"];
+  const CREDIT_TYPE_OPTIONS = ["系選", "必修", "非系選", "通識", "體育"];
+  const RESULT_STATUS_OPTIONS = ["pending", "passed", "failed", "withdrawn"];
+  const MYCOURSES_KEY = "my-courses";
+  const MYCOURSES_TYPE = "my-courses";
+
+  // file:// 開啟或localStorage尚無資料時的退路示範資料,與timetable.html的FALLBACK同源設計理念
+  // (刻意涵蓋:已填分數/未填分數/退選,驗證三種狀態的計算行為都正確)
+  const FALLBACK_MYCOURSES = [
+    { instanceId: "demo1", semester: "大二上", status: "selected", creditType: "系選", credits: 3, name: "文化人類學", teacher: "趙彥寧", day: "一", periods: "2,3,4", resultStatus: "passed", score: 88 },
+    { instanceId: "demo2", semester: "大二上", status: "selected", creditType: "必修", credits: 2, name: "社會統計學", teacher: "王老師", day: "三", periods: "5,6", resultStatus: "passed", score: 76 },
+    { instanceId: "demo3", semester: "大二上", status: "planned", creditType: "非系選", credits: 2, name: "建築實例分析", teacher: "盧澤彥", day: "二", periods: "3,4", resultStatus: "pending", score: "" },
+    { instanceId: "demo5", semester: "大二上", status: "selected", creditType: "通識", credits: 1, name: "退選示範課", teacher: "測試老師", day: "四", periods: "2", resultStatus: "withdrawn", score: 60 },
+  ];
+
+  function loadMyCourses() {
+    const local = Storage.load(MYCOURSES_KEY, MYCOURSES_TYPE);
+    if (local && !local.error && local.payload.length > 0) return local.payload;
+    if (local && local.error) {
+      document.getElementById("fetch-note").textContent =
+        "讀取本機課程資料時發生問題(" + local.error + "),已改用內建示範資料。";
+    }
+    Storage.save(MYCOURSES_KEY, FALLBACK_MYCOURSES, MYCOURSES_TYPE);
+    return FALLBACK_MYCOURSES;
+  }
+
+  // 與其他模組共用同一份 my-courses 陣列參考;score寫入時直接修改陣列中的原物件,
+  // 再整份存回storage,不做merge——原理與courses.html的my-courses表格一致(見editable-table.js filterFn註解)。
+  const myCourses = loadMyCourses();
+
+  function saveMyCourses() {
+    Storage.save(MYCOURSES_KEY, myCourses, MYCOURSES_TYPE);
+  }
+
+  function fmt(n) {
+    return n === null || n === undefined ? "—" : (Math.round(n * 100) / 100).toString();
+  }
+
+  let gradesTable = null;
+
+  function currentSemester() {
+    return document.getElementById("semester-select").value;
+  }
+
+  function renderGradesTable() {
+    const semester = currentSemester();
+    gradesTable = new EditableTable(document.getElementById("grades-table-slot"), {
+      fields: [
+        { key: "name", label: "課名", type: "text" },
+        { key: "credits", label: "學分", type: "number" },
+        { key: "creditType", label: "學分類別", type: "select", options: CREDIT_TYPE_OPTIONS },
+        { key: "resultStatus", label: "結果", type: "select", options: RESULT_STATUS_OPTIONS },
+        { key: "score", label: "分數(0-100)", type: "number" },
+      ],
+      data: myCourses,
+      filterFn: (row) => row.semester === semester && row.status === "selected",
+      emptyText: "本學期尚無「已選」課程。預選(planned)課程需先在「課程資料庫」模組確認選課後才會出現在這裡。",
+      showAddRow: false,
+      onChange: () => {
+        saveMyCourses();
+        renderSummaries();
+      },
+    });
+  }
+
+  function renderSemesterSummary() {
+    const semester = currentSemester();
+    const summary = GradeCalc.computeSemesterSummary(myCourses, semester);
+    document.getElementById("sem-avg").textContent = fmt(summary.avgScore);
+    document.getElementById("sem-gpa").textContent = fmt(summary.gpa);
+    document.getElementById("sem-credits").textContent = summary.totalCredits;
+  }
+
+  function renderOverviewTable() {
+    const slot = document.getElementById("overview-table-slot");
+    const table = document.createElement("table");
+    table.className = "summary";
+    const thead = document.createElement("thead");
+    thead.innerHTML = "<tr><th>學期</th><th>計入學分</th><th>加權平均</th><th>加權GPA</th></tr>";
+    table.appendChild(thead);
+    const tbody = document.createElement("tbody");
+
+    SEMESTERS.forEach((sem) => {
+      const summary = GradeCalc.computeSemesterSummary(myCourses, sem);
+      const tr = document.createElement("tr");
+      const tdSem = document.createElement("td");
+      tdSem.textContent = sem;
+      tr.appendChild(tdSem);
+
+      const tdCredits = document.createElement("td");
+      tdCredits.textContent = summary.totalCredits;
+      tr.appendChild(tdCredits);
+
+      const hasData = summary.avgScore !== null;
+      const tagClass = hasData ? "ok" : "empty";
+      const tagLabel = hasData ? "已計入" : "尚無資料";
+
+      const tdAvg = document.createElement("td");
+      tdAvg.innerHTML = `${fmt(summary.avgScore)} <span class="src-tag ${tagClass}">${tagLabel}</span>`;
+      tr.appendChild(tdAvg);
+
+      const tdGpa = document.createElement("td");
+      tdGpa.innerHTML = `${fmt(summary.gpa)} <span class="src-tag ${tagClass}">${tagLabel}</span>`;
+      tr.appendChild(tdGpa);
+
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    slot.innerHTML = "";
+    slot.appendChild(table);
+  }
+
+  function renderCumulativeBox() {
+    const summary = GradeCalc.computeCumulativeSummary(myCourses, SEMESTERS);
+    document.getElementById("cum-avg").textContent = fmt(summary.avgScore);
+    document.getElementById("cum-gpa").textContent = fmt(summary.gpa);
+    document.getElementById("cum-credits").textContent = summary.totalCredits;
+  }
+
+  function renderSummaries() {
+    renderSemesterSummary();
+    renderOverviewTable();
+    renderCumulativeBox();
+  }
+
+  const semSelect = document.getElementById("semester-select");
+  semSelect.innerHTML = SEMESTERS.map((s) => `<option value="${s}">${s}</option>`).join("");
+  semSelect.value = "大二上"; // 對應示範資料所在學期
+  semSelect.addEventListener("change", () => {
+    renderGradesTable();
+    renderSummaries();
+  });
+
+  renderGradesTable();
+  renderSummaries();
+</script>
+</body>
+</html>

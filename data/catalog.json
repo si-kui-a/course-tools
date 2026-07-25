@@ -1,0 +1,35 @@
+[
+  {
+    "_id": "cat-0001",
+    "courseId": "1938",
+    "name": "金融社會學",
+    "teacher": "陳鈺偉",
+    "day": "二",
+    "periods": "2,3,4",
+    "credits": 3,
+    "category": "系上選修",
+    "note": ""
+  },
+  {
+    "_id": "cat-0002",
+    "courseId": "2495",
+    "name": "建築實例分析",
+    "teacher": "盧澤彥",
+    "day": "二",
+    "periods": "3,4",
+    "credits": 2,
+    "category": "跨域課程",
+    "note": ""
+  },
+  {
+    "_id": "cat-0003",
+    "courseId": "1933",
+    "name": "文化人類學",
+    "teacher": "趙彥寧",
+    "day": "一",
+    "periods": "2,3,4",
+    "credits": 3,
+    "category": "系上選修",
+    "note": "推廣部隨班附讀請獲得老師同意"
+  }
+]
