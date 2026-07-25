@@ -58,9 +58,39 @@
 
 ---
 
+### PAT-05：Phase 編號與骨架標籤不一致（KNOWN_ISSUE）
+
+**現象**：本次收到的「Phase 06」指令書內容為 reviews.html + scholarships.html，但專案骨架
+自建立起即有三處獨立標籤指向不同編號：`modules/grades.html` 標註「Phase 04 實作」、
+`modules/reviews.html`／`modules/scholarships.html` 標註「Phase 05 實作」、
+`modules/settings.html` 標註「Phase 06 實作」；`README.md`「Token 設定」一節也寫
+「詳見 modules/settings.html（Phase 06 實作）」；且 PAT-03 早已將「Phase 06」保留給
+`github-sync.js` 完成、接上 `curriculum.json` 真實來源。四處證據一致指向：
+reviews/scholarships 應為 Phase 05，settings.html/github-sync 才是 Phase 06。
+
+**因應**：已於執行前將此落差回報使用者，使用者兩次明確選擇「仍維持指令書原定的
+Phase 06 編號」，故本輪分支/commit/tag 皆以 Phase 06 命名，本記錄僅存證落差本身，
+不代表往後 Phase 編號會自動跳號對齊骨架標籤。
+
+**後續影響**：下一輪若要實作 `settings.html`／`github-sync.js`，需與使用者確認其
+Phase 編號如何訂定（沿用「Phase 07」延續本次的編號慣性，或改標「Phase 06」使其
+名實相符），避免同一數字重複用於兩個不同範圍的 Phase。
+
+---
+
+### PAT-06：Phase 03 遺留測試失敗（KNOWN_ISSUE）
+
+**現象**：`test/phase03.html`「③ creditTypeSubtotal / breakdown」區塊有 2 項失敗
+（「系選小計正確」「breakdown 系選=3」），在合併 phase-03 分支進 main 時即已存在，
+與本次 Phase 06 的異動（未觸碰 `credit-calc.js`）無關，純屬發現順帶回報。
+
+**因應**：本輪未修復，因修改 `credit-calc.js` 屬於受保護檔案、超出本次指令書範圍。
+留待下一輪明確授權後處理。
+
 ## 待解事項
 
-- （Phase 03 開始前無新增）
+- Phase 03 `credit-calc.js` 的 `creditTypeSubtotal`／`creditTypeBreakdown` 對「系選」
+  類別計算有誤（見 PAT-06），待下一輪授權修復。
 
 ## 版本歷史
 
@@ -68,3 +98,5 @@
 |---|---|
 | v0.1.0 | Phase 01：雙倉庫初始化 + storage.js + editable-table.js |
 | v0.2.0 | Phase 02：courses.html 模組 + list-editor.js |
+| v0.3.0 | Phase 03：credits.html + timetable.html 模組 + credit-calc.js |
+| v0.4.0 | Phase 06（骨架標籤原指 Phase 05，見 PAT-05）：reviews.html + scholarships.html 模組、header.js 導覽列、data/teachers.json 與 data/catalog-config.json 調整、data/scholarships.json 新增 |
