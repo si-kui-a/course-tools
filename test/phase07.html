@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 07 驗收測試</title>
+  <link rel="stylesheet" href="../style.css">
+  <style>
+    .test-section { margin-bottom: 2rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); }
+    .result-line { font-size: 13px; margin: 2px 0; }
+    .pass { color: var(--color-success); }
+    .fail { color: var(--color-danger); font-weight: bold; }
+    .summary { font-size: 1rem; font-weight: bold; padding: 0.75rem 1rem; border-radius: var(--radius); margin-bottom: 1.5rem; }
+    .summary.all-pass { background: #dcfce7; color: #15803d; }
+    .summary.has-fail  { background: #fee2e2; color: #b91c1c; }
+    #test-iframe { width: 100%; height: 900px; border: 1px dashed var(--color-border); margin-top: 1rem; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Phase 07 驗收測試 — thu-api.js / courses.html 匯入面板</h1>
+  <p class="text-muted mb-2">須經本地 server 開啟：<code>http://localhost:8090/test/phase07.html</code></p>
+  <div id="summary" class="summary">測試執行中...</div>
+
+  <div class="test-section"><h2>A. thu-api.js 單元測試（8項）</h2><div id="res-unit"></div></div>
+  <div class="test-section"><h2>B. courses.html 整合測試（10項）</h2><div id="res-integration"></div></div>
+  <div class="test-section"><h2>C. 迴歸測試</h2><div id="res-regression"></div></div>
+
+  <iframe id="test-iframe"></iframe>
+</main>
+
+<script src="../js/thu-api.js"></script>
+<script>
+(function () {
+  let totalPass = 0, totalFail = 0;
+
+  function assert(containerId, label, condition) {
+    const el = document.getElementById(containerId);
+    const div = document.createElement('div');
+    div.className = 'result-line ' + (condition ? 'pass' : 'fail');
+    div.textContent = (condition ? '✅ PASS' : '❌ FAIL') + ' — ' + label;
+    el.appendChild(div);
+    condition ? totalPass++ : totalFail++;
+    return condition;
+  }
+
+  function waitFor(fn, timeoutMs = 4000, intervalMs = 50) {
+    return new Promise((resolve, reject) => {
+      const start = Date.now();
+      (function poll() {
+        let val;
+        try { val = fn(); } catch (e) { val = false; }
+        if (val) return resolve(val);
+        if (Date.now() - start > timeoutMs) return reject(new Error('waitFor timeout'));
+        setTimeout(poll, intervalMs);
+      })();
+    });
+  }
+
+  function loadIframe(url) {
+    const iframe = document.getElementById('test-iframe');
+    return new Promise((resolve) => {
+      iframe.addEventListener('load', () => resolve(iframe), { once: true });
+      iframe.src = url + '?t=' + Date.now();
+    });
+  }
+
+  function mockRes(data, opts = {}) {
+    if (opts.networkError) return Promise.reject(new Error('mock network error'));
+    return Promise.resolve({
+      ok: opts.ok !== false,
+      status: opts.status || 200,
+      json: () => opts.notJson
+        ? Promise.reject(new SyntaxError('mock: response is not valid JSON'))
+        : Promise.resolve(data)
+    });
+  }
+
+  const MOCK_TERMS = [
+    { year: '115', term: '1', cnt: '2912' },
+    { year: '114', term: '2', cnt: '2800' }
+  ];
+  const MOCK_DEPT_TREE = [
+    { college_code: '100', college_label: '文學院', departments: [{ majrcode: '110', majrname: '中國文學系' }] }
+  ];
+  const MOCK_COURSES = [
+    { name: '通識體育', teacher: '王老師', timeroom: '三/1,2', credits: 1 },
+    { name: '金融社會學', teacher: '陳鈺偉', timeroom: '二/5,6,7[ST023]', credits: 3 }
+  ];
+  const EXISTING_COURSE = {
+    instanceId: 'existing-1', semester: '大一上', status: 'selected', creditType: '必修',
+    credits: 2, name: '既有課程X', teacher: '某老師', day: '二', periods: '5,6',
+    resultStatus: 'passed', grading: [], note: ''
+  };
+
+  async function run() {
+    // ==========================================================
+    // A. thu-api.js 單元測試（mock fetch，不發真實網路請求）
+    // ==========================================================
+    const originalFetch = window.fetch;
+
+    window.fetch = (url) => {
+      if (String(url).includes('/api/terms')) return mockRes(MOCK_TERMS);
+      return mockRes(null, { ok: false, status: 404 });
+    };
+    const terms = await ThuApi.getTerms();
+    assert('res-unit', '① getTerms() 解析正確，回傳陣列含 year/term/cnt',
+      Array.isArray(terms) && terms.length === 2 && terms[0].year === '115' && terms[0].term === '1' && terms[0].cnt === '2912');
+
+    window.fetch = (url) => {
+      if (String(url).includes('mode=dept')) return mockRes(MOCK_DEPT_TREE);
+      return mockRes(null, { ok: false, status: 404 });
+    };
+    const deptTree = await ThuApi.getDeptTree('115', '1');
+    assert('res-unit', '② getDeptTree() 回傳學院-系所階層結構',
+      Array.isArray(deptTree) && deptTree[0].college_label === '文學院' && deptTree[0].departments[0].majrname === '中國文學系');
+
+    window.fetch = (url) => {
+      if (String(url).includes('mode=simulate')) return mockRes(MOCK_COURSES);
+      return mockRes(null, { ok: false, status: 404 });
+    };
+    const courses = await ThuApi.searchCourses('115', '1', '110');
+    assert('res-unit', '③ searchCourses() 回傳課程陣列', Array.isArray(courses) && courses.length === 2 && courses[0].name === '通識體育');
+
+    assert('res-unit', '④ parseTimeroom("二/5,6,7[ST023]") 正確',
+      JSON.stringify(ThuApi.parseTimeroom('二/5,6,7[ST023]')) === JSON.stringify([{ day: '二', periods: '5,6,7' }]));
+
+    assert('res-unit', '⑤ parseTimeroom("一/B,三/5,6,7") 拆成兩筆',
+      JSON.stringify(ThuApi.parseTimeroom('一/B,三/5,6,7')) === JSON.stringify([{ day: '一', periods: 'B' }, { day: '三', periods: '5,6,7' }]));
+
+    assert('res-unit', '⑥ parseTimeroom("") 回傳空值不 throw',
+      JSON.stringify(ThuApi.parseTimeroom('')) === JSON.stringify([{ day: '', periods: '' }]));
+
+    window.fetch = () => Promise.reject(new DOMException('mock timeout', 'AbortError'));
+    let timeoutThrew = false;
+    try { await ThuApi.getTerms(); } catch (e) { timeoutThrew = e.name === 'AbortError' || /abort/i.test(e.message); }
+    assert('res-unit', '⑦ fetch 超時（mock AbortError）→ throw，不 silent fail', timeoutThrew);
+
+    window.fetch = (url) => mockRes(null, { notJson: true });
+    let notJsonThrew = false;
+    try { await ThuApi.getTerms(); } catch (e) { notJsonThrew = true; }
+    assert('res-unit', '⑧ fetch 回傳非 JSON → throw', notJsonThrew);
+
+    window.fetch = originalFetch;
+
+    // ==========================================================
+    // B. courses.html 整合測試
+    // ==========================================================
+    localStorage.setItem('course-tools:my-courses', JSON.stringify([EXISTING_COURSE]));
+    localStorage.removeItem('course-tools:catalog');
+    localStorage.removeItem('course-tools:catalog-config');
+
+    let iframe = await loadIframe('../modules/courses.html');
+    let doc = () => iframe.contentDocument;
+
+    // ① 預設收合
+    assert('res-integration', '① 頁面載入，匯入面板預設收合',
+      doc().getElementById('import-panel').classList.contains('collapsed'));
+
+    // mock fetch on the iframe's own window (used at click time via dynamic global lookup)
+    iframe.contentWindow.fetch = (url) => {
+      const u = String(url);
+      if (u.includes('/api/terms')) return mockRes(MOCK_TERMS);
+      if (u.includes('mode=dept')) return mockRes(MOCK_DEPT_TREE);
+      if (u.includes('mode=simulate')) return mockRes(MOCK_COURSES);
+      return mockRes(null, { ok: false, status: 404 });
+    };
+
+    // ② 展開後 Step1 顯示 spinner，mock terms 回傳後顯示學年期選單
+    doc().getElementById('btn-toggle-import').click();
+    const loadingText = doc().getElementById('import-step1-content').textContent;
+    assert('res-integration', '② 展開後 Step1 顯示 spinner（載入中）', loadingText.includes('載入中'));
+    await waitFor(() => doc().getElementById('import-term-select'));
+    assert('res-integration', '② mock terms 回傳後顯示學年期選單',
+      doc().querySelectorAll('#import-term-select option').length === 3); // 佔位 + 2 筆
+
+    // ③ 選學年期後 Step2 顯示系所選單
+    const termSelect = doc().getElementById('import-term-select');
+    termSelect.value = '115-1';
+    termSelect.dispatchEvent(new Event('change'));
+    await waitFor(() => doc().getElementById('import-college-select'));
+    assert('res-integration', '③ 選學年期後 Step2 顯示系所選單', !!doc().getElementById('import-college-select'));
+
+    // ④ 選系所後按搜尋，Step3 顯示課程列表
+    const collegeSelect = doc().getElementById('import-college-select');
+    collegeSelect.value = '100';
+    collegeSelect.dispatchEvent(new Event('change'));
+    const deptSelect = doc().getElementById('import-dept-select');
+    deptSelect.value = '110';
+    deptSelect.dispatchEvent(new Event('change'));
+    doc().getElementById('import-search-btn').click();
+    await waitFor(() => doc().querySelectorAll('#import-step3-content tbody tr').length > 0);
+    const rows = doc().querySelectorAll('#import-step3-content tbody tr');
+    assert('res-integration', '④ 選系所後按搜尋，Step3 顯示課程列表', rows.length === 2);
+
+    // ⑤ 點「加入」（通識體育，無衝堂），寫入 localStorage，status=planned
+    const row0AddBtn = rows[0].querySelector('.col-action button');
+    row0AddBtn.click();
+    let stored = JSON.parse(localStorage.getItem('course-tools:my-courses') || '[]');
+    assert('res-integration', '⑤ 點「加入」課程寫入 localStorage', stored.length === 2);
+    const added = stored.find(c => c.name === '通識體育');
+    assert('res-integration', '⑤ 新增課程 status=planned', added?.status === 'planned');
+
+    // ⑥ 重複點「加入」同課程，按鈕變灰色「已加入」，不重複寫入
+    assert('res-integration', '⑥ 已加入按鈕顯示「已加入」且 disabled',
+      row0AddBtn.textContent === '已加入' && row0AddBtn.disabled === true);
+    row0AddBtn.click(); // disabled，真實瀏覽器不會觸發 handler
+    stored = JSON.parse(localStorage.getItem('course-tools:my-courses') || '[]');
+    assert('res-integration', '⑥ 不重複寫入（仍 2 筆）', stored.length === 2);
+
+    // ⑦ 衝堂情況：既有課程 day=二 periods=5,6，加入 day=二 periods=5,6,7 → 顯示衝堂警告
+    const row1AddBtn = rows[1].querySelector('.col-action button');
+    row1AddBtn.click();
+    const warnBox = rows[1].querySelector('.conflict-warning');
+    assert('res-integration', '⑦ 衝堂時顯示警告，含既有課程名稱與時段',
+      warnBox.style.display !== 'none' && warnBox.textContent.includes('既有課程X') && warnBox.textContent.includes('二') && warnBox.textContent.includes('5,6'));
+
+    // ⑧ 衝堂警告點「取消」→ 不寫入
+    const cancelBtn = Array.from(warnBox.querySelectorAll('button')).find(b => b.textContent === '取消');
+    cancelBtn.click();
+    stored = JSON.parse(localStorage.getItem('course-tools:my-courses') || '[]');
+    assert('res-integration', '⑧ 點「取消」不寫入（仍 2 筆）', stored.length === 2);
+    assert('res-integration', '⑧ 點「取消」後警告框隱藏', warnBox.style.display === 'none');
+
+    // ⑨ 衝堂警告點「確認加入」→ 寫入
+    row1AddBtn.click();
+    const confirmBtn = Array.from(rows[1].querySelector('.conflict-warning').querySelectorAll('button')).find(b => b.textContent === '確認加入');
+    confirmBtn.click();
+    stored = JSON.parse(localStorage.getItem('course-tools:my-courses') || '[]');
+    assert('res-integration', '⑨ 點「確認加入」後寫入（共 3 筆）',
+      stored.length === 3 && stored.some(c => c.name === '金融社會學' && c.day === '二' && c.periods === '5,6,7'));
+
+    // ⑩ fetch 失敗（mock network error）→ 顯示錯誤訊息 + 重試按鈕，不 crash
+    localStorage.setItem('course-tools:my-courses', JSON.stringify([]));
+    iframe = await loadIframe('../modules/courses.html');
+    doc = () => iframe.contentDocument;
+    iframe.contentWindow.fetch = () => Promise.reject(new Error('mock network error'));
+    let crashed = false;
+    try {
+      doc().getElementById('btn-toggle-import').click();
+      await waitFor(() => doc().querySelector('#import-step1-content .error-state'));
+    } catch (e) { crashed = true; }
+    const errEl = doc().querySelector('#import-step1-content .error-state');
+    const retryBtn = Array.from(doc().querySelectorAll('#import-step1-content button')).find(b => b.textContent === '重試');
+    assert('res-integration', '⑩ fetch失敗顯示錯誤訊息 + 重試按鈕，不crash', !crashed && !!errEl && !!retryBtn);
+
+    // ==========================================================
+    // C. 迴歸測試
+    // ==========================================================
+    const p06Iframe = await loadIframe('../test/phase06.html');
+    const p06Doc = () => p06Iframe.contentDocument;
+    await waitFor(() => p06Doc().getElementById('summary').textContent.includes('/'), 15000);
+    const p06Summary = p06Doc().getElementById('summary').textContent;
+    assert('res-regression', 'test/phase06.html 26/26 仍 PASS', p06Summary.includes('26/26') && p06Summary.includes('✅'));
+
+    const p02Iframe = await loadIframe('../test/phase02.html');
+    const p02Doc = () => p02Iframe.contentDocument;
+    await waitFor(() => p02Doc().getElementById('summary').textContent.includes('/'), 15000);
+    const p02Summary = p02Doc().getElementById('summary').textContent;
+    assert('res-regression', 'test/phase02.html 16/16 仍 PASS', p02Summary.includes('16/16') && p02Summary.includes('✅'));
+
+    // ==========================================================
+    // 總結
+    // ==========================================================
+    const summary = document.getElementById('summary');
+    const total = totalPass + totalFail;
+    if (totalFail === 0) {
+      summary.className = 'summary all-pass';
+      summary.textContent = `✅ 全部通過 ${totalPass}/${total} — Phase 07 驗收完成`;
+    } else {
+      summary.className = 'summary has-fail';
+      summary.textContent = `❌ ${totalFail} 項失敗（通過 ${totalPass}/${total}）`;
+    }
+  }
+
+  run().catch(e => {
+    const summary = document.getElementById('summary');
+    summary.className = 'summary has-fail';
+    summary.textContent = `❌ 測試執行時發生例外：${e.message}`;
+    console.error(e);
+  });
+})();
+</script>
+</body>
+</html>
