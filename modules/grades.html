@@ -10,10 +10,237 @@
   <header id="app-header"></header>
   <main>
     <h1>加權成績試算</h1>
-    <p class="text-muted">Phase 04 實作</p>
+    <p class="text-muted mb-2">
+      本頁只負責「填分數、算加權平均分數/GPA」，課程本身的新增/刪除請至「課程資料庫」模組。
+      只有「已選」(status=selected)且非退選的課程會被納入計算；若某學期尚無填分課程，
+      平均分數/GPA 會顯示為「尚無資料」而非0，避免誤導。GPA對照表為常見估算值，非官方標準，
+      僅供試算參考。
+    </p>
+
+    <h2>單學期成績登錄與試算</h2>
+    <label>檢視學期：
+      <select id="grade-semester-select"></select>
+    </label>
+    <div id="grades-table-container" class="mt-2"></div>
+
+    <div class="threshold-box mt-2">
+      <div class="flex" style="justify-content: space-between; align-items: baseline;">
+        <div>
+          <div class="text-muted">本學期加權平均</div>
+          <div class="big-number" id="sem-avg">—</div>
+        </div>
+        <div>
+          <div class="text-muted">本學期加權GPA</div>
+          <div class="big-number" id="sem-gpa">—</div>
+        </div>
+        <div>
+          <div class="text-muted">計入學分數</div>
+          <div class="big-number" id="sem-credits">—</div>
+        </div>
+      </div>
+    </div>
+
+    <h2 class="section-divider">8 學期總覽</h2>
+    <div id="overview-table-container"></div>
+
+    <h2 class="section-divider">累計總平均</h2>
+    <div class="threshold-box">
+      <div class="flex" style="justify-content: space-between; align-items: baseline;">
+        <div>
+          <div class="text-muted">累計加權平均</div>
+          <div class="big-number" id="cum-avg">—</div>
+        </div>
+        <div>
+          <div class="text-muted">累計加權GPA</div>
+          <div class="big-number" id="cum-gpa">—</div>
+        </div>
+        <div>
+          <div class="text-muted">累計計入學分數</div>
+          <div class="big-number" id="cum-credits">—</div>
+        </div>
+      </div>
+    </div>
   </main>
+
   <script src="../js/storage.js"></script>
-  <script src="../js/editable-table.js"></script>
+  <script src="../js/grade-calc.js"></script>
   <script src="../js/header.js"></script>
+  <script>
+  (function () {
+    AppHeader.init({ activeKey: 'grades', inModule: true });
+
+    const SEMESTERS = ['大一上','大一下','大二上','大二下','大三上','大三下','大四上','大四下'];
+    // 比照 courses.html 既有的 curriculumEnum 讀取方式，避免跟 my-courses 表格的
+    // 學分類別選項各自維護一份不同步的清單
+    let curriculumEnum = Storage.read('curriculum-enum') || {
+      creditTypeOptions: ['系選', '必修', '非系選', '通識', '體育'],
+      semesterOptions: SEMESTERS
+    };
+    const RESULT_STATUS_OPTIONS = ['pending', 'passed', 'failed', 'withdrawn'];
+
+    let myCourses = Storage.read('my-courses') || [];
+    function persistMyCourses() { Storage.write('my-courses', myCourses); }
+
+    function fmt(n) {
+      return n === null || n === undefined ? '—' : (Math.round(n * 100) / 100).toString();
+    }
+
+    function currentSemester() {
+      return document.getElementById('grade-semester-select').value;
+    }
+
+    // 不用 EditableTable：它的新增/刪除按鈕無法關閉，若餵入本頁篩選過的子集，
+    // 新增會產生沒有學期/課名的幽靈列、刪除也只會刪掉子集副本、不會真的從
+    // myCourses 移除。本頁職責只是「改已選課程的分數/類別/結果」，比照
+    // courses.html 的 Catalog 唯讀表格作法，直接手刻表格、操作 myCourses
+    // 陣列參照本身，課程本身的新增/刪除仍統一交給 courses.html。
+    function renderGradesTable() {
+      const semester = currentSemester();
+      const container = document.getElementById('grades-table-container');
+      container.innerHTML = '';
+      const rows = myCourses.filter(c => c.semester === semester && c.status === 'selected');
+
+      if (rows.length === 0) {
+        const p = document.createElement('p');
+        p.className = 'text-muted';
+        p.textContent = '本學期尚無「已選」課程。預選(planned)課程需先在「課程資料庫」模組確認選課後才會出現在這裡。';
+        container.appendChild(p);
+        return;
+      }
+
+      const wrap = document.createElement('div');
+      wrap.className = 'editable-table-wrap';
+      const table = document.createElement('table');
+      table.className = 'editable-table';
+      const thead = document.createElement('thead');
+      thead.innerHTML = '<tr><th>課名</th><th>學分</th><th>學分類別</th><th>結果</th><th>分數(0-100)</th></tr>';
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+
+      rows.forEach(row => {
+        const tr = document.createElement('tr');
+
+        const tdName = document.createElement('td');
+        tdName.textContent = row.name;
+        tr.appendChild(tdName);
+
+        const tdCredits = document.createElement('td');
+        tdCredits.textContent = row.credits;
+        tr.appendChild(tdCredits);
+
+        const tdType = document.createElement('td');
+        const typeSelect = document.createElement('select');
+        curriculumEnum.creditTypeOptions.forEach(opt => {
+          const el = document.createElement('option');
+          el.value = opt; el.textContent = opt;
+          if (opt === row.creditType) el.selected = true;
+          typeSelect.appendChild(el);
+        });
+        typeSelect.addEventListener('change', () => {
+          row.creditType = typeSelect.value;
+          persistMyCourses();
+        });
+        tdType.appendChild(typeSelect);
+        tr.appendChild(tdType);
+
+        const tdResult = document.createElement('td');
+        const resultSelect = document.createElement('select');
+        RESULT_STATUS_OPTIONS.forEach(opt => {
+          const el = document.createElement('option');
+          el.value = opt; el.textContent = opt;
+          if (opt === row.resultStatus) el.selected = true;
+          resultSelect.appendChild(el);
+        });
+        resultSelect.addEventListener('change', () => {
+          row.resultStatus = resultSelect.value;
+          persistMyCourses();
+          renderSummaries();
+        });
+        tdResult.appendChild(resultSelect);
+        tr.appendChild(tdResult);
+
+        const tdScore = document.createElement('td');
+        const scoreInput = document.createElement('input');
+        scoreInput.type = 'number';
+        scoreInput.min = 0;
+        scoreInput.max = 100;
+        scoreInput.value = row.score ?? '';
+        scoreInput.addEventListener('change', () => {
+          const v = scoreInput.value === '' ? '' : parseFloat(scoreInput.value);
+          row.score = isNaN(v) ? '' : v;
+          persistMyCourses();
+          renderSummaries();
+        });
+        tdScore.appendChild(scoreInput);
+        tr.appendChild(tdScore);
+
+        tbody.appendChild(tr);
+      });
+
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      container.appendChild(wrap);
+    }
+
+    function renderSemesterSummary() {
+      const semester = currentSemester();
+      const summary = GradeCalc.computeSemesterSummary(myCourses, semester);
+      document.getElementById('sem-avg').textContent = fmt(summary.avgScore);
+      document.getElementById('sem-gpa').textContent = fmt(summary.gpa);
+      document.getElementById('sem-credits').textContent = summary.totalCredits;
+    }
+
+    function renderOverviewTable() {
+      const container = document.getElementById('overview-table-container');
+      const table = document.createElement('table');
+      table.className = 'credits-summary-table';
+      const thead = document.createElement('thead');
+      thead.innerHTML = '<tr><th>學期</th><th>計入學分</th><th>加權平均</th><th>加權GPA</th></tr>';
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+
+      SEMESTERS.forEach((sem) => {
+        const summary = GradeCalc.computeSemesterSummary(myCourses, sem);
+        const hasData = summary.avgScore !== null;
+        const badge = hasData ? '' : '<span class="estimated-badge">尚無資料</span>';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${sem}</td>
+          <td>${summary.totalCredits}</td>
+          <td>${fmt(summary.avgScore)} ${badge}</td>
+          <td>${fmt(summary.gpa)} ${badge}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      container.innerHTML = '';
+      container.appendChild(table);
+    }
+
+    function renderCumulativeBox() {
+      const summary = GradeCalc.computeCumulativeSummary(myCourses, SEMESTERS);
+      document.getElementById('cum-avg').textContent = fmt(summary.avgScore);
+      document.getElementById('cum-gpa').textContent = fmt(summary.gpa);
+      document.getElementById('cum-credits').textContent = summary.totalCredits;
+    }
+
+    function renderSummaries() {
+      renderSemesterSummary();
+      renderOverviewTable();
+      renderCumulativeBox();
+    }
+
+    const semSelect = document.getElementById('grade-semester-select');
+    semSelect.innerHTML = SEMESTERS.map((s) => `<option value="${s}">${s}</option>`).join('');
+    semSelect.value = SEMESTERS[0];
+    semSelect.addEventListener('change', () => {
+      renderGradesTable();
+      renderSummaries();
+    });
+
+    renderGradesTable();
+    renderSummaries();
+  })();
+  </script>
 </body>
 </html>

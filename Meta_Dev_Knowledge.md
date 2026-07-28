@@ -112,10 +112,36 @@ Phase 編號如何訂定（沿用「Phase 07」延續本次的編號慣性，或
 `my-courses`／其他既有資料結構的欄位名，執行前應先 `Read` 實際檔案核對一次，
 不假設指令書描述與現況一致。
 
+### PAT-08：editable-table.js 無 filterFn、新增/刪除鈕無法關閉（KNOWN_LIMITATION）
+
+**現象**：Phase 08 移植 `grades.html`（加權成績試算）時，原本想用 `EditableTable.init()`
+顯示「my-courses 篩選過的子集（僅本學期已選課程）」，但實際檢視 `editable-table.js`
+原始碼後發現：(1) 沒有 `filterFn` 這個選項；(2) 新增/刪除按鈕永遠渲染、無法透過
+options 關閉。若硬塞篩選後的子集進去，新增會產生沒有學期/課名的幽靈列（因為
+`onChange` 只拿得到子集，用 instanceId 合併回完整 `myCourses` 時，新增的列不在
+原子集裡、會被合併邏輯誤判為「已刪除」而丟掉；反過來刪除子集裡的列，合併邏輯
+又會把它當「未變更」而保留，實際上刪不掉）。
+
+**因應**：`grades.html` 改比照 `courses.html` 的 Catalog 唯讀表格作法，不用
+`EditableTable`，直接手刻 `<table>`、對 `myCourses.filter(...)` 篩選出的列（陣列
+參照本身，非深拷貝）掛 change 事件，改一個欄位就直接寫回原物件、`persistMyCourses()`
+一次寫整份，不經過 `EditableTable` 的深拷貝＋新增/刪除機制。這頁本來就只需要「編輯
+已選課程的分數/類別/結果」，課程本身的新增/刪除本來就該統一走 `courses.html`。
+
+**後續影響**：未來若有其他模組想顯示 `my-courses`（或其他既有集合）的篩選子集且
+需要編輯功能，比照本頁做法手刻表格，不要嘗試餵子集進 `EditableTable.init()`。
+若真的需要「可篩選+可新增+可刪除」的完整功能，`editable-table.js` 本身要先加
+`filterFn` 支援與「隱藏新增/刪除鈕」的 options，這是元件層級的擴充，不是單一頁面
+可以繞過的事。
+
+**附帶**：PAT-07 提到指令書曾要求 `my-courses` 寫入 `score` 欄位、但當時 schema
+沒有——現在 `grades.html` 正式讓 `score` 成為 `my-courses` 記錄的合法欄位（只在此頁
+讀寫，`courses.html` 的 EditableTable schema 不需要跟著加這個欄位，跟 `grading`/
+`note` 這些「有些頁面用、有些頁面不用」的既有欄位待遇一致）。
+
 ## 待解事項
 
-- 東海課程匯入僅取第一個時段寫入 `my-courses`（見 Phase 07 commit），跨兩天課程的
-  完整多時段支援待 schema 改為 `periods` 陣列後處理。
+（目前無）
 
 ## 版本歷史
 

@@ -37,4 +37,5 @@
 - Phase 02：courses.html 模組 + list-editor.js
 - Phase 03：credits.html + timetable.html 模組 + credit-calc.js
 - Phase 06（骨架標籤原指 Phase 05，見 Meta_Dev_Knowledge.md PAT-05）：reviews.html + scholarships.html 模組、header.js 導覽列
-- Phase 07（當前）：thu-api.js + courses.html 東海課程資訊網匯入面板
+- Phase 07：thu-api.js + courses.html 東海課程資訊網匯入面板
+- Phase 08（當前）：grades.html + grade-calc.js 加權成績試算，移植自 course-tools-merged-mvp（改用本 repo 的 Storage/EditableTable 慣例重新實作，非直接複製）
