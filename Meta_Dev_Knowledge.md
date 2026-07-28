@@ -78,14 +78,21 @@ Phase 編號如何訂定（沿用「Phase 07」延續本次的編號慣性，或
 
 ---
 
-### PAT-06：Phase 03 遺留測試失敗（KNOWN_ISSUE）
+### PAT-06：Phase 03 遺留測試失敗（RESOLVED，2026-07-28）
 
 **現象**：`test/phase03.html`「③ creditTypeSubtotal / breakdown」區塊有 2 項失敗
-（「系選小計正確」「breakdown 系選=3」），在合併 phase-03 分支進 main 時即已存在，
-與本次 Phase 06 的異動（未觸碰 `credit-calc.js`）無關，純屬發現順帶回報。
+（「系選小計正確」「breakdown 系選=3」），在合併 phase-03 分支進 main 時即已存在。
 
-**因應**：本輪未修復，因修改 `credit-calc.js` 屬於受保護檔案、超出本次指令書範圍。
-留待下一輪明確授權後處理。
+**根因覆核**：問題不在 `credit-calc.js`，而在測試本身斷言的語意錯誤。
+`creditTypeSubtotal`/`creditTypeBreakdown` 是課表產生器（`timetable.html`）用來
+顯示「目前排課」小計的函式，只依 `status===selected` 篩選，不管 `resultStatus`
+——當學期新選課程本來就預設 `pending`（見 `courses.html` 的 `addToMyCourses`），
+若要求只算 `passed` 才計入，會讓當學期小計在成績出來前永遠顯示 0，不符合課表
+產生器「一目了然目前排課狀態」的用途。與 `earned()`（畢業學分門檻比對用，
+故意只算 `passed`）是刻意不同語意的兩個函式，不是同一套邏輯的兩種寫法。
+
+**因應**：程式碼行為裁定為正確、不修改；已修正 `test/phase03.html` 的斷言與
+註解以反映正確語意（系選小計 3→6）。
 
 ---
 
@@ -107,8 +114,6 @@ Phase 編號如何訂定（沿用「Phase 07」延續本次的編號慣性，或
 
 ## 待解事項
 
-- Phase 03 `credit-calc.js` 的 `creditTypeSubtotal`／`creditTypeBreakdown` 對「系選」
-  類別計算有誤（見 PAT-06），待下一輪授權修復。
 - 東海課程匯入僅取第一個時段寫入 `my-courses`（見 Phase 07 commit），跨兩天課程的
   完整多時段支援待 schema 改為 `periods` 陣列後處理。
 

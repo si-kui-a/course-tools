@@ -67,10 +67,14 @@
   assert('res-fallback', '無明細無fallback → 0', t3.value === 0 && t3.isEstimated === true);
 
   // ── ③ creditTypeSubtotal / breakdown ────────────
+  // 用途裁定（PAT-06 覆核，2026-07-28）：這是課表產生器要顯示的「目前排課」
+  // 小計，只看 status===selected，不管 resultStatus（當學期新選課程本來就
+  // 預設pending，尚未有成績）。大一上 系選=3(passed)+3(failed)=6，
+  // 兩筆都算，跟 earned() 的「僅passed算已修得」是不同用途、不同函式。
   const sub1 = CreditCalc.creditTypeSubtotal(mockCourses, '大一上', '系選');
-  assert('res-subtotal', '系選小計正確（僅selected）= 3', sub1 === 3);
+  assert('res-subtotal', '系選小計正確（全部selected，不論成績）= 6', sub1 === 6);
   const breakdown = CreditCalc.creditTypeBreakdown(mockCourses, '大一上', ['系選','必修','非系選']);
-  assert('res-subtotal', 'breakdown 系選=3', breakdown['系選'] === 3);
+  assert('res-subtotal', 'breakdown 系選=6', breakdown['系選'] === 6);
   assert('res-subtotal', 'breakdown 必修=2', breakdown['必修'] === 2);
   assert('res-subtotal', 'breakdown 非系選=0（無資料）', breakdown['非系選'] === 0);
 
