@@ -121,6 +121,7 @@
 
   // ── ③ Catalog → My Courses 資料流模擬 ──────────
   // 模擬 courses.html 內 addToMyCourses() 的核心資料轉換邏輯
+  // （2026-07-28同步：真實邏輯已改用slots陣列取代單一day/periods，見東海跨天課程修正）
   const mockCourse = { name: '金融社會學', teacher: '陳鈺偉', day: '二', periods: '2,3,4', credits: 3 };
   const semesterOptions = ['大一上','大一下'];
   const creditTypeOptions = ['系選','必修'];
@@ -136,8 +137,7 @@
       credits: course.credits,
       name: course.name,
       teacher: course.teacher,
-      day: course.day,
-      periods: course.periods,
+      slots: [{ day: course.day, periods: course.periods }],
       resultStatus: 'pending',
       grading: [],
       note: ''

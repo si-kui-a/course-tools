@@ -24,6 +24,7 @@
 
   <div class="test-section"><h2>A. thu-api.js 單元測試（8項）</h2><div id="res-unit"></div></div>
   <div class="test-section"><h2>B. courses.html 整合測試（10項）</h2><div id="res-integration"></div></div>
+  <div class="test-section"><h2>D. 跨天多時段完整寫入驗收（技術債修正覆核）</h2><div id="res-multiday"></div></div>
   <div class="test-section"><h2>C. 迴歸測試</h2><div id="res-regression"></div></div>
 
   <iframe id="test-iframe"></iframe>
@@ -89,7 +90,7 @@
   ];
   const EXISTING_COURSE = {
     instanceId: 'existing-1', semester: '大一上', status: 'selected', creditType: '必修',
-    credits: 2, name: '既有課程X', teacher: '某老師', day: '二', periods: '5,6',
+    credits: 2, name: '既有課程X', teacher: '某老師', slots: [{ day: '二', periods: '5,6' }],
     resultStatus: 'passed', grading: [], note: ''
   };
 
@@ -228,7 +229,9 @@
     confirmBtn.click();
     stored = JSON.parse(localStorage.getItem('course-tools:my-courses') || '[]');
     assert('res-integration', '⑨ 點「確認加入」後寫入（共 3 筆）',
-      stored.length === 3 && stored.some(c => c.name === '金融社會學' && c.day === '二' && c.periods === '5,6,7'));
+      stored.length === 3 && stored.some(c =>
+        c.name === '金融社會學' && c.slots?.length === 1 &&
+        c.slots[0].day === '二' && c.slots[0].periods === '5,6,7'));
 
     // ⑩ fetch 失敗（mock network error）→ 顯示錯誤訊息 + 重試按鈕，不 crash
     localStorage.setItem('course-tools:my-courses', JSON.stringify([]));
@@ -243,6 +246,63 @@
     const errEl = doc().querySelector('#import-step1-content .error-state');
     const retryBtn = Array.from(doc().querySelectorAll('#import-step1-content button')).find(b => b.textContent === '重試');
     assert('res-integration', '⑩ fetch失敗顯示錯誤訊息 + 重試按鈕，不crash', !crashed && !!errEl && !!retryBtn);
+
+    // ==========================================================
+    // D. 跨天多時段完整寫入驗收（見 credit-calc.js/courses.html/timetable.html
+    // 的 slots 陣列修正：東海課程跨兩天，如"一/B,三/5,6,7"，先前只取第一時段
+    // 寫入 my-courses，衝堂偵測也只比對第一時段）
+    // ==========================================================
+    const MULTIDAY_COURSE = { name: '跨天選修課', teacher: '林老師', timeroom: '一/B,三/5,6,7', credits: 2 };
+    // 刻意只跟「第二時段」（三/5）衝堂，第一時段（一/B）不衝——
+    // 若修正前的「只比對第一時段」邏輯復發，這筆不會被偵測到衝堂
+    const SECOND_SLOT_CONFLICT = {
+      instanceId: 'existing-2', semester: '大一上', status: 'selected', creditType: '必修',
+      credits: 2, name: '週三既有課', teacher: '某老師', slots: [{ day: '三', periods: '5' }],
+      resultStatus: 'passed', grading: [], note: ''
+    };
+    localStorage.setItem('course-tools:my-courses', JSON.stringify([SECOND_SLOT_CONFLICT]));
+
+    let mdIframe = await loadIframe('../modules/courses.html');
+    let mdDoc = () => mdIframe.contentDocument;
+    mdIframe.contentWindow.fetch = (url) => {
+      const u = String(url);
+      if (u.includes('/api/terms')) return mockRes(MOCK_TERMS);
+      if (u.includes('mode=dept')) return mockRes(MOCK_DEPT_TREE);
+      if (u.includes('mode=simulate')) return mockRes([MULTIDAY_COURSE]);
+      return mockRes(null, { ok: false, status: 404 });
+    };
+    mdDoc().getElementById('btn-toggle-import').click();
+    await waitFor(() => mdDoc().getElementById('import-term-select'));
+    const mdTermSelect = mdDoc().getElementById('import-term-select');
+    mdTermSelect.value = '115-1';
+    mdTermSelect.dispatchEvent(new Event('change'));
+    await waitFor(() => mdDoc().getElementById('import-college-select'));
+    const mdCollegeSelect = mdDoc().getElementById('import-college-select');
+    mdCollegeSelect.value = '100';
+    mdCollegeSelect.dispatchEvent(new Event('change'));
+    const mdDeptSelect = mdDoc().getElementById('import-dept-select');
+    mdDeptSelect.value = '110';
+    mdDeptSelect.dispatchEvent(new Event('change'));
+    mdDoc().getElementById('import-search-btn').click();
+    await waitFor(() => mdDoc().querySelectorAll('#import-step3-content tbody tr').length > 0);
+    const mdRow = mdDoc().querySelector('#import-step3-content tbody tr');
+    const mdAddBtn = mdRow.querySelector('.col-action button');
+    mdAddBtn.click();
+
+    // ⑪ 只跟第二時段（三/5）衝堂的既有課程，仍要能被偵測到 → 顯示警告
+    const mdWarnBox = mdRow.querySelector('.conflict-warning');
+    assert('res-multiday', '⑪ 跨天課程第二時段衝堂被正確偵測（不再只看第一時段）',
+      mdWarnBox.style.display !== 'none' && mdWarnBox.textContent.includes('週三既有課'));
+
+    // ⑫ 確認加入後，兩個時段都要完整寫入 my-courses
+    const mdConfirmBtn = Array.from(mdWarnBox.querySelectorAll('button')).find(b => b.textContent === '確認加入');
+    mdConfirmBtn.click();
+    const mdStored = JSON.parse(localStorage.getItem('course-tools:my-courses') || '[]');
+    const mdSaved = mdStored.find(c => c.name === '跨天選修課');
+    assert('res-multiday', '⑫ 跨天課程兩個時段皆完整寫入 slots 陣列（不再只留第一時段）',
+      mdSaved?.slots?.length === 2 &&
+      mdSaved.slots[0].day === '一' && mdSaved.slots[0].periods === 'B' &&
+      mdSaved.slots[1].day === '三' && mdSaved.slots[1].periods === '5,6,7');
 
     // ==========================================================
     // C. 迴歸測試

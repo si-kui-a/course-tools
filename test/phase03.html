@@ -104,17 +104,26 @@
   assert('res-labor', 'count 缺省視為 1', CreditCalc.laborHoursSum(weeksNoCount) === 3);
 
   // ── ⑥ detectConflicts ───────────────────────────
+  // 資料格式（技術債修正，2026-07-28）：courses.html/timetable.html 已改用
+  // slots: Array<{day,periods}> 取代單一 day/periods 欄位，支援東海跨天課程
   const conflictCourses = [
-    { name: '課A', day: '一', periods: '2,3,4' },
-    { name: '課B', day: '一', periods: '3' }, // 與課A在第3節衝堂
-    { name: '課C', day: '二', periods: '5,6' }
+    { name: '課A', slots: [{ day: '一', periods: '2,3,4' }] },
+    { name: '課B', slots: [{ day: '一', periods: '3' }] }, // 與課A在第3節衝堂
+    { name: '課C', slots: [{ day: '二', periods: '5,6' }] }
   ];
   const conflicts = CreditCalc.detectConflicts(conflictCourses);
   assert('res-conflict', '偵測到 1 處衝堂', conflicts.length === 1);
   assert('res-conflict', '衝堂位置正確（星期一第3節）', conflicts[0]?.day === '一' && conflicts[0]?.period === '3');
   assert('res-conflict', '衝堂課程包含課A與課B', conflicts[0]?.courses.length === 2);
-  const noConflict = CreditCalc.detectConflicts([{ name: '課D', day: '三', periods: '1' }]);
+  const noConflict = CreditCalc.detectConflicts([{ name: '課D', slots: [{ day: '三', periods: '1' }] }]);
   assert('res-conflict', '無衝堂時返回空陣列', noConflict.length === 0);
+  // 跨天課程：第一時段(一/1)不衝，第二時段(三/1)才跟課D衝，證明detectConflicts
+  // 真的檢查全部slots、不是只看第一個
+  const multiDayConflict = CreditCalc.detectConflicts([
+    { name: '課D', slots: [{ day: '三', periods: '1' }] },
+    { name: '跨天課', slots: [{ day: '一', periods: '1' }, { day: '三', periods: '1' }] }
+  ]);
+  assert('res-conflict', '跨天課程第二時段與課D衝堂被偵測到', multiDayConflict.length === 1 && multiDayConflict[0].day === '三');
 
   // ── ⑦ 純函式無副作用驗證 ────────────────────────
   const originalCourses = JSON.parse(JSON.stringify(mockCourses));
