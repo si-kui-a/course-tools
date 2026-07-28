@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phase 08 驗收測試 — 加權成績試算</title>
+  <link rel="stylesheet" href="../style.css">
+  <style>
+    .test-section { margin-bottom: 2rem; padding: 1rem; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); }
+    .result-line { font-size: 13px; margin: 2px 0; }
+    .pass { color: var(--color-success); }
+    .fail { color: var(--color-danger); font-weight: bold; }
+    .summary { font-size: 1rem; font-weight: bold; padding: 0.75rem 1rem; border-radius: var(--radius); margin-bottom: 1.5rem; }
+    .summary.all-pass { background: #dcfce7; color: #15803d; }
+    .summary.has-fail  { background: #fee2e2; color: #b91c1c; }
+    #test-iframe { width: 100%; height: 900px; border: 1px dashed var(--color-border); margin-top: 1rem; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Phase 08 驗收測試 — grade-calc.js / modules/grades.html</h1>
+  <p class="text-muted mb-2">須經本地 server 開啟：<code>http://localhost:8090/test/phase08.html</code></p>
+  <div id="summary" class="summary">測試執行中...</div>
+
+  <div class="test-section"><h2>A. grade-calc.js 單元測試</h2><div id="res-unit"></div></div>
+  <div class="test-section"><h2>B. grades.html 整合測試</h2><div id="res-integration"></div></div>
+
+  <iframe id="test-iframe"></iframe>
+</main>
+
+<script src="../js/grade-calc.js"></script>
+<script>
+(function () {
+  let totalPass = 0, totalFail = 0;
+
+  function assert(containerId, label, condition) {
+    const el = document.getElementById(containerId);
+    const div = document.createElement('div');
+    div.className = 'result-line ' + (condition ? 'pass' : 'fail');
+    div.textContent = (condition ? '✅ PASS' : '❌ FAIL') + ' — ' + label;
+    el.appendChild(div);
+    condition ? totalPass++ : totalFail++;
+    return condition;
+  }
+
+  function waitFor(fn, timeoutMs = 4000, intervalMs = 50) {
+    return new Promise((resolve, reject) => {
+      const start = Date.now();
+      (function poll() {
+        let val;
+        try { val = fn(); } catch (e) { val = false; }
+        if (val) return resolve(val);
+        if (Date.now() - start > timeoutMs) return reject(new Error('waitFor timeout'));
+        setTimeout(poll, intervalMs);
+      })();
+    });
+  }
+
+  function loadIframe(url) {
+    const iframe = document.getElementById('test-iframe');
+    return new Promise((resolve) => {
+      iframe.addEventListener('load', () => resolve(iframe), { once: true });
+      iframe.src = url + '?t=' + Date.now();
+    });
+  }
+
+  const MOCK_COURSES = [
+    { instanceId: 'c1', semester: '大二上', status: 'selected', creditType: '系選', credits: 3, name: '文化人類學', teacher: '趙老師', slots: [{ day: '一', periods: '2,3,4' }], resultStatus: 'passed', score: 88, grading: [], note: '' },
+    { instanceId: 'c2', semester: '大二上', status: 'selected', creditType: '必修', credits: 2, name: '社會統計學', teacher: '王老師', slots: [{ day: '三', periods: '5,6' }], resultStatus: 'passed', score: 76, grading: [], note: '' },
+    { instanceId: 'c3', semester: '大二上', status: 'planned', creditType: '非系選', credits: 2, name: '建築實例分析', teacher: '盧老師', slots: [{ day: '二', periods: '3,4' }], resultStatus: 'pending', score: '', grading: [], note: '' },
+    { instanceId: 'c4', semester: '大二上', status: 'selected', creditType: '通識', credits: 1, name: '退選示範課', teacher: '測試老師', slots: [{ day: '四', periods: '2' }], resultStatus: 'withdrawn', score: 60, grading: [], note: '' },
+    { instanceId: 'c5', semester: '大二上', status: 'selected', creditType: '系選', credits: 3, name: '成績未填課', teacher: '測試老師', slots: [{ day: '五', periods: '1' }], resultStatus: 'pending', score: '', grading: [], note: '' },
+  ];
+
+  async function run() {
+    // ==========================================================
+    // A. grade-calc.js 單元測試
+    // ==========================================================
+    assert('res-unit', '① hasValidScore：有分數的課程視為有效', GradeCalc.hasValidScore({ score: 88 }));
+    assert('res-unit', '① hasValidScore：空字串視為未填', !GradeCalc.hasValidScore({ score: '' }));
+    assert('res-unit', '① hasValidScore：undefined視為未填', !GradeCalc.hasValidScore({}));
+
+    assert('res-unit', '② scoreToGpa 邊界值：90→4.3', GradeCalc.scoreToGpa(90) === 4.3);
+    assert('res-unit', '② scoreToGpa 邊界值：89→4.0', GradeCalc.scoreToGpa(89) === 4.0);
+    assert('res-unit', '② scoreToGpa 邊界值：59→0', GradeCalc.scoreToGpa(59) === 0);
+
+    const eligible = GradeCalc.eligibleRows(MOCK_COURSES, '大二上');
+    assert('res-integration'.replace('integration','unit'), '③ eligibleRows 只留 selected+非withdrawn+已填分數（5筆中應剩2筆：c1,c2）',
+      eligible.length === 2 && eligible.every(c => ['c1', 'c2'].includes(c.instanceId)));
+    // 說明：c3(planned排除)、c4(withdrawn排除)、c5(未填分數排除)
+
+    const sem = GradeCalc.computeSemesterSummary(MOCK_COURSES, '大二上');
+    // 加權平均 = (3*88 + 2*76) / 5 = (264+152)/5 = 83.2；加權GPA：88→4.0(85-89.99), 76→3.0(73-76.99)
+    // (3*4.0 + 2*3.0)/5 = (12+6)/5 = 3.6
+    assert('res-unit', '④ computeSemesterSummary 加權平均正確 = 83.2', Math.abs(sem.avgScore - 83.2) < 0.01);
+    assert('res-unit', '④ computeSemesterSummary 加權GPA正確 = 3.6', Math.abs(sem.gpa - 3.6) < 0.01);
+    assert('res-unit', '④ computeSemesterSummary 計入學分正確 = 5', sem.totalCredits === 5);
+
+    const empty = GradeCalc.computeSemesterSummary(MOCK_COURSES, '大三上');
+    assert('res-unit', '⑤ 無合格資料的學期，avgScore/gpa為null（非0）', empty.avgScore === null && empty.gpa === null);
+
+    const cum = GradeCalc.computeCumulativeSummary(MOCK_COURSES, ['大二上', '大三上']);
+    assert('res-unit', '⑥ computeCumulativeSummary 跨學期累計正確 = 83.2', Math.abs(cum.avgScore - 83.2) < 0.01);
+
+    // ==========================================================
+    // B. grades.html 整合測試
+    // ==========================================================
+    localStorage.setItem('course-tools:my-courses', JSON.stringify(MOCK_COURSES));
+    localStorage.removeItem('course-tools:curriculum-enum');
+
+    const iframe = await loadIframe('../modules/grades.html');
+    const doc = () => iframe.contentDocument;
+    await waitFor(() => doc().getElementById('grade-semester-select'));
+    // 預設學期是SEMESTERS[0]（大一上，比照credits.html慣例），假資料在大二上，先切過去
+    const semSelect = doc().getElementById('grade-semester-select');
+    semSelect.value = '大二上';
+    semSelect.dispatchEvent(new Event('change'));
+    await waitFor(() => doc().querySelectorAll('#grades-table-container tbody tr').length > 0);
+
+    const rows = doc().querySelectorAll('#grades-table-container tbody tr');
+    assert('res-integration', '⑦ 表格只顯示已選課程（4筆selected中，c1/c2/c4/c5，共4列)', rows.length === 4);
+
+    assert('res-integration', '⑧ 本學期加權平均正確顯示 83.2',
+      doc().getElementById('sem-avg').textContent === '83.2');
+    assert('res-integration', '⑨ 計入學分數正確顯示 5',
+      doc().getElementById('sem-credits').textContent === '5');
+
+    // ⑩ 修改其中一列分數，即時重算
+    const scoreInputs = doc().querySelectorAll('#grades-table-container input[type="number"]');
+    const c2Input = Array.from(scoreInputs).find((input, idx) => {
+      // c1/c2/c4/c5 依myCourses原順序渲染，c2 是第2列（76分那筆）
+      return input.value === '76';
+    });
+    assert('res-integration', '⑩ 找到c2的分數輸入框（值=76）', !!c2Input);
+    c2Input.value = '100';
+    c2Input.dispatchEvent(new Event('change'));
+    // 新加權平均 = (3*88 + 2*100)/5 = (264+200)/5 = 92.8
+    assert('res-integration', '⑩ 修改分數後即時重算加權平均 = 92.8',
+      doc().getElementById('sem-avg').textContent === '92.8');
+
+    const stored = JSON.parse(localStorage.getItem('course-tools:my-courses') || '[]');
+    const c2 = stored.find(c => c.instanceId === 'c2');
+    assert('res-integration', '⑪ 修改後的分數正確寫回 localStorage', c2.score === 100);
+
+    // ⑫ 其餘課程資料（含未觸碰的 slots 多時段欄位）未被覆蓋或遺失
+    const c1 = stored.find(c => c.instanceId === 'c1');
+    assert('res-integration', '⑫ 未編輯的課程資料完整保留（slots陣列未被破壞）',
+      c1.slots?.length === 1 && c1.slots[0].day === '一' && c1.slots[0].periods === '2,3,4');
+    assert('res-integration', '⑫ 總筆數不變（5筆，沒有幽靈新增列或誤刪）', stored.length === 5);
+
+    // ⑬ 8學期總覽表：大二上應顯示"已計入"(有資料)，其餘學期應顯示"尚無資料"
+    const overviewRows = doc().querySelectorAll('#overview-table-container tbody tr');
+    assert('res-integration', '⑬ 8學期總覽共8列', overviewRows.length === 8);
+    const sem2Row = Array.from(overviewRows).find(tr => tr.textContent.includes('大二上'));
+    assert('res-integration', '⑬ 大二上該列不顯示"尚無資料"標籤（已有計算結果）',
+      !sem2Row.textContent.includes('尚無資料'));
+    const sem3Row = Array.from(overviewRows).find(tr => tr.textContent.includes('大三上'));
+    assert('res-integration', '⑬ 大三上該列顯示"尚無資料"標籤（無選課紀錄）',
+      sem3Row.textContent.includes('尚無資料'));
+
+    // ==========================================================
+    // 總結
+    // ==========================================================
+    const summary = document.getElementById('summary');
+    const total = totalPass + totalFail;
+    if (totalFail === 0) {
+      summary.className = 'summary all-pass';
+      summary.textContent = `✅ 全部通過 ${totalPass}/${total} — Phase 08 驗收完成`;
+    } else {
+      summary.className = 'summary has-fail';
+      summary.textContent = `❌ ${totalFail} 項失敗（通過 ${totalPass}/${total}）`;
+    }
+  }
+
+  run().catch(e => {
+    const summary = document.getElementById('summary');
+    summary.className = 'summary has-fail';
+    summary.textContent = `❌ 測試執行時發生例外：${e.message}`;
+    console.error(e);
+  });
+})();
+</script>
+</body>
+</html>

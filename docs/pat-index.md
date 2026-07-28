@@ -11,3 +11,4 @@
 | PAT-05 | Phase 編號與骨架標籤不一致 | KNOWN_ISSUE | 已存證，使用者選擇維持 Phase 06 編號 |
 | PAT-06 | Phase 03 遺留測試失敗（creditTypeSubtotal） | RESOLVED | 2026-07-28：程式碼行為裁定正確，已修正測試斷言 |
 | PAT-07 | 指令書引用不存在的 API／欄位（連續2輪） | KNOWN_ISSUE | 執行前核對實檔已成慣例 |
+| PAT-08 | editable-table.js 無 filterFn、新增/刪除鈕無法關閉 | KNOWN_LIMITATION | 2026-07-29：grades.html 移植時發現，改手刻表格繞開 |
