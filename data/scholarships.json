@@ -1,0 +1,15 @@
+{
+  "_meta": { "version": 1 },
+  "items": [
+    { "id": "s001", "name": "東海大學書卷獎", "category": "校內獎學金", "amount": 5000, "amountUnit": "元/學期", "deadline": "每學期期末", "url": "", "note": "成績前5%" },
+    { "id": "s002", "name": "教育部弱勢助學金", "category": "政府補助", "amount": 30000, "amountUnit": "元/年", "deadline": "每年9月", "url": "https://www.edu.tw", "note": "家庭年收入門檻" },
+    { "id": "s003", "name": "客家委員會獎學金", "category": "政府補助", "amount": 20000, "amountUnit": "元/年", "deadline": "每年10月", "url": "", "note": "具客家血統" },
+    { "id": "s004", "name": "扶輪社清寒獎學金", "category": "校外獎學金", "amount": 15000, "amountUnit": "元/次", "deadline": "每年3月", "url": "", "note": "" },
+    { "id": "s005", "name": "DAAD德國學術交流獎學金", "category": "國際交流", "amount": 0, "amountUnit": "依方案", "deadline": "每年10月", "url": "https://www.daad.de", "note": "赴德交流專用" },
+    { "id": "s006", "name": "台灣獎學金（教育部）", "category": "政府補助", "amount": 15000, "amountUnit": "元/月", "deadline": "每年3月", "url": "", "note": "外籍生為主，本國生特殊方案" },
+    { "id": "s007", "name": "東海工學院系際競賽獎", "category": "校內獎學金", "amount": 3000, "amountUnit": "元/次", "deadline": "競賽後申請", "url": "", "note": "" },
+    { "id": "s008", "name": "永豐餘教育基金會獎學金", "category": "校外獎學金", "amount": 30000, "amountUnit": "元/年", "deadline": "每年5月", "url": "", "note": "理工科系優先" },
+    { "id": "s009", "name": "原住民族委員會獎助學金", "category": "政府補助", "amount": 18000, "amountUnit": "元/年", "deadline": "每年10月", "url": "", "note": "具原住民身分" },
+    { "id": "s010", "name": "Erasmus+ 交換計畫補助", "category": "國際交流", "amount": 0, "amountUnit": "依方案", "deadline": "每年1月", "url": "https://erasmus-plus.ec.europa.eu", "note": "歐盟交換生" }
+  ]
+}

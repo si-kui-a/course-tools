@@ -33,4 +33,8 @@
 
 ## 實作進度
 
-- Phase 01（當前）：雙倉庫初始化 + storage.js + editable-table.js
+- Phase 01：雙倉庫初始化 + storage.js + editable-table.js
+- Phase 02：courses.html 模組 + list-editor.js
+- Phase 03：credits.html + timetable.html 模組 + credit-calc.js
+- Phase 06（骨架標籤原指 Phase 05，見 Meta_Dev_Knowledge.md PAT-05）：reviews.html + scholarships.html 模組、header.js 導覽列
+- Phase 07（當前）：thu-api.js + courses.html 東海課程資訊網匯入面板

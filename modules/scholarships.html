@@ -10,10 +10,176 @@
   <header id="app-header"></header>
   <main>
     <h1>獎助 / 實習追蹤</h1>
-    <p class="text-muted">Phase 05 實作</p>
+
+    <div class="filter-bar">
+      <select id="filter-category">
+        <option value="">全部類別</option>
+      </select>
+      <input type="text" id="filter-keyword" placeholder="搜尋名稱/備註…">
+      <label class="checkbox-label">
+        <input type="checkbox" id="filter-bookmarked-only">
+        僅顯示已加書籤
+      </label>
+    </div>
+
+    <div id="scholarship-list-container"></div>
   </main>
+
   <script src="../js/storage.js"></script>
-  <script src="../js/editable-table.js"></script>
   <script src="../js/header.js"></script>
+  <script>
+  (function () {
+    const BOOKMARKS_KEY = 'scholarship-bookmarks';
+    const FALLBACK_CATEGORIES = ['校內獎學金', '校外獎學金', '政府補助', '國際交流'];
+
+    let scholarships = [];
+    let categories = FALLBACK_CATEGORIES;
+    let bookmarks = new Set(Storage.read(BOOKMARKS_KEY) || []);
+    let loadError = false;
+
+    function persistBookmarks() {
+      Storage.write(BOOKMARKS_KEY, Array.from(bookmarks));
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str ?? '';
+      return div.innerHTML;
+    }
+
+    function populateCategoryFilter() {
+      const sel = document.getElementById('filter-category');
+      sel.innerHTML = '<option value="">全部類別</option>';
+      categories.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c; opt.textContent = c;
+        sel.appendChild(opt);
+      });
+    }
+
+    // ==========================================================
+    // 篩選邏輯
+    // ==========================================================
+    function getFiltered() {
+      const category = document.getElementById('filter-category').value;
+      const kw = document.getElementById('filter-keyword').value.trim().toLowerCase();
+      const bookmarkedOnly = document.getElementById('filter-bookmarked-only').checked;
+      return scholarships.filter(s => {
+        if (category && s.category !== category) return false;
+        if (kw && !(`${s.name} ${s.note || ''}`.toLowerCase().includes(kw))) return false;
+        if (bookmarkedOnly && !bookmarks.has(s.id)) return false;
+        return true;
+      });
+    }
+
+    // ==========================================================
+    // 卡片列表渲染
+    // ==========================================================
+    function renderList() {
+      const container = document.getElementById('scholarship-list-container');
+      container.innerHTML = '';
+
+      if (loadError) {
+        const p = document.createElement('p');
+        p.className = 'error-state';
+        p.textContent = '獎學金資料載入失敗，請稍後再試。';
+        container.appendChild(p);
+        return;
+      }
+
+      const filtered = getFiltered();
+      if (filtered.length === 0) {
+        const p = document.createElement('p');
+        p.className = 'empty-state';
+        p.textContent = '無符合條件的獎學金';
+        container.appendChild(p);
+        return;
+      }
+
+      const list = document.createElement('div');
+      list.className = 'card-list';
+
+      filtered.forEach(s => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.dataset.scholarshipId = s.id;
+
+        const isBookmarked = bookmarks.has(s.id);
+        const bookmarkBtn = document.createElement('button');
+        bookmarkBtn.type = 'button';
+        bookmarkBtn.className = 'bookmark-btn' + (isBookmarked ? ' bookmarked' : '');
+        bookmarkBtn.textContent = isBookmarked ? '★' : '☆';
+        bookmarkBtn.setAttribute('aria-label', '加入書籤');
+        bookmarkBtn.addEventListener('click', () => {
+          if (bookmarks.has(s.id)) bookmarks.delete(s.id);
+          else bookmarks.add(s.id);
+          persistBookmarks();
+          renderList();
+        });
+        card.appendChild(bookmarkBtn);
+
+        const badge = document.createElement('span');
+        badge.className = 'category-badge';
+        badge.textContent = s.category;
+        card.appendChild(badge);
+
+        const h3 = document.createElement('h3');
+        h3.textContent = s.name;
+        card.appendChild(h3);
+
+        const meta = document.createElement('div');
+        meta.className = 'card-meta';
+        const amountText = s.amount > 0 ? `${s.amount.toLocaleString()} ${s.amountUnit}` : s.amountUnit;
+        meta.textContent = `金額：${amountText} ｜ 截止：${s.deadline}`;
+        card.appendChild(meta);
+
+        if (s.note) {
+          const noteP = document.createElement('p');
+          noteP.className = 'comment-text';
+          noteP.textContent = s.note;
+          card.appendChild(noteP);
+        }
+
+        if (s.url) {
+          const link = document.createElement('a');
+          link.href = s.url;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          link.textContent = '外部連結 →';
+          card.appendChild(link);
+        }
+
+        list.appendChild(card);
+      });
+
+      container.appendChild(list);
+    }
+
+    document.getElementById('filter-category').addEventListener('change', renderList);
+    document.getElementById('filter-keyword').addEventListener('input', renderList);
+    document.getElementById('filter-bookmarked-only').addEventListener('change', renderList);
+
+    // ==========================================================
+    // 初始化
+    // ==========================================================
+    AppHeader.init({ activeKey: 'scholarships', inModule: true });
+
+    Promise.all([
+      fetch('../data/scholarships.json').then(res => { if (!res.ok) throw new Error('fetch failed'); return res.json(); }),
+      fetch('../data/catalog-config.json').then(res => res.ok ? res.json() : null).catch(() => null)
+    ]).then(([scholarshipData, catalogConfig]) => {
+      scholarships = scholarshipData.items || [];
+      if (catalogConfig && catalogConfig.scholarshipCategories && catalogConfig.scholarshipCategories.length) {
+        categories = catalogConfig.scholarshipCategories;
+      }
+      populateCategoryFilter();
+      renderList();
+    }).catch(() => {
+      loadError = true;
+      populateCategoryFilter();
+      renderList();
+    });
+  })();
+  </script>
 </body>
 </html>

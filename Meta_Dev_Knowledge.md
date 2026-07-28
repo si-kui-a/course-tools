@@ -58,9 +58,59 @@
 
 ---
 
+### PAT-05：Phase 編號與骨架標籤不一致（KNOWN_ISSUE）
+
+**現象**：本次收到的「Phase 06」指令書內容為 reviews.html + scholarships.html，但專案骨架
+自建立起即有三處獨立標籤指向不同編號：`modules/grades.html` 標註「Phase 04 實作」、
+`modules/reviews.html`／`modules/scholarships.html` 標註「Phase 05 實作」、
+`modules/settings.html` 標註「Phase 06 實作」；`README.md`「Token 設定」一節也寫
+「詳見 modules/settings.html（Phase 06 實作）」；且 PAT-03 早已將「Phase 06」保留給
+`github-sync.js` 完成、接上 `curriculum.json` 真實來源。四處證據一致指向：
+reviews/scholarships 應為 Phase 05，settings.html/github-sync 才是 Phase 06。
+
+**因應**：已於執行前將此落差回報使用者，使用者兩次明確選擇「仍維持指令書原定的
+Phase 06 編號」，故本輪分支/commit/tag 皆以 Phase 06 命名，本記錄僅存證落差本身，
+不代表往後 Phase 編號會自動跳號對齊骨架標籤。
+
+**後續影響**：下一輪若要實作 `settings.html`／`github-sync.js`，需與使用者確認其
+Phase 編號如何訂定（沿用「Phase 07」延續本次的編號慣性，或改標「Phase 06」使其
+名實相符），避免同一數字重複用於兩個不同範圍的 Phase。
+
+---
+
+### PAT-06：Phase 03 遺留測試失敗（KNOWN_ISSUE）
+
+**現象**：`test/phase03.html`「③ creditTypeSubtotal / breakdown」區塊有 2 項失敗
+（「系選小計正確」「breakdown 系選=3」），在合併 phase-03 分支進 main 時即已存在，
+與本次 Phase 06 的異動（未觸碰 `credit-calc.js`）無關，純屬發現順帶回報。
+
+**因應**：本輪未修復，因修改 `credit-calc.js` 屬於受保護檔案、超出本次指令書範圍。
+留待下一輪明確授權後處理。
+
+---
+
+### PAT-07：指令書引用不存在的 API／欄位（KNOWN_ISSUE，已連續 2 輪出現）
+
+**現象**：Phase 06 指令書寫「沿用 `Storage.save/load`」，實際 `storage.js` 只有
+`Storage.read/write`；Phase 07 指令書寫 `instanceId: Storage.generateId()`，實際
+`storage.js` 沒有 `generateId`（UUID 產生邏輯在各模組頁自行用
+`crypto.randomUUID ? ... : Date.now().toString(36)` 處理），且指令書要求寫入
+`score: ""` 欄位，但 `my-courses` 的 `EditableTable` schema 與既有
+`addToMyCourses()` 邏輯只有 `grading: []`／`note: ''`，沒有 `score` 欄位。
+
+**因應**：兩次都在動工前用實際檔案內容核對、採用專案既有慣例（既有 API／既有欄位）
+取代指令書寫的不存在項目，並在該輪 commit message／回報中列出偏離點，不悄悄照抄。
+
+**後續影響**：下一輪指令書若再引用 `storage.js`／`editable-table.js` 的具體方法名或
+`my-courses`／其他既有資料結構的欄位名，執行前應先 `Read` 實際檔案核對一次，
+不假設指令書描述與現況一致。
+
 ## 待解事項
 
-- （Phase 03 開始前無新增）
+- Phase 03 `credit-calc.js` 的 `creditTypeSubtotal`／`creditTypeBreakdown` 對「系選」
+  類別計算有誤（見 PAT-06），待下一輪授權修復。
+- 東海課程匯入僅取第一個時段寫入 `my-courses`（見 Phase 07 commit），跨兩天課程的
+  完整多時段支援待 schema 改為 `periods` 陣列後處理。
 
 ## 版本歷史
 
@@ -68,3 +118,6 @@
 |---|---|
 | v0.1.0 | Phase 01：雙倉庫初始化 + storage.js + editable-table.js |
 | v0.2.0 | Phase 02：courses.html 模組 + list-editor.js |
+| v0.3.0 | Phase 03：credits.html + timetable.html 模組 + credit-calc.js |
+| v0.4.0 | Phase 06（骨架標籤原指 Phase 05，見 PAT-05）：reviews.html + scholarships.html 模組、header.js 導覽列、data/teachers.json 與 data/catalog-config.json 調整、data/scholarships.json 新增 |
+| v0.5.0 | Phase 07：thu-api.js + courses.html 東海課程匯入面板（三步驟、衝堂偵測） |

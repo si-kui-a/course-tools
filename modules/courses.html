@@ -11,6 +11,25 @@
   <main>
     <h1>課程資料庫</h1>
 
+    <!-- ============ 東海課程資訊網匯入面板 ============ -->
+    <div class="collapsible-toggle">
+      <button type="button" id="btn-toggle-import" class="btn btn-secondary">▶ 從東海課程資訊網匯入</button>
+    </div>
+    <div id="import-panel" class="collapsible-body collapsed">
+      <div id="import-step1">
+        <h3>Step 1：選學年期</h3>
+        <div id="import-step1-content"></div>
+      </div>
+      <div id="import-step2" style="display:none;">
+        <h3>Step 2：選系所</h3>
+        <div id="import-step2-content"></div>
+      </div>
+      <div id="import-step3" style="display:none;">
+        <h3>Step 3：選課加入</h3>
+        <div id="import-step3-content"></div>
+      </div>
+    </div>
+
     <!-- ============ Catalog 瀏覽區 ============ -->
     <h2>選修課程庫（Catalog）</h2>
     <div class="catalog-filters">
@@ -44,6 +63,7 @@
   <script src="../js/storage.js"></script>
   <script src="../js/editable-table.js"></script>
   <script src="../js/list-editor.js"></script>
+  <script src="../js/thu-api.js"></script>
   <script src="../js/header.js"></script>
   <script>
   (function () {
@@ -312,6 +332,309 @@
     document.getElementById('filter-keyword').addEventListener('input', renderCatalogTable);
     document.getElementById('filter-domain').addEventListener('change', renderCatalogTable);
     document.getElementById('filter-day').addEventListener('change', renderCatalogTable);
+
+    // ==========================================================
+    // 東海課程資訊網匯入面板（Phase 07）
+    // ==========================================================
+    let importPanelInitialized = false;
+    let importSelectedYear = null;
+    let importSelectedTerm = null;
+    let importSelectedMajrcode = null;
+
+    function renderImportLoading(contentId) {
+      document.getElementById(contentId).innerHTML = '<p class="text-muted">載入中…</p>';
+    }
+
+    function renderImportError(contentId, retryFn) {
+      const c = document.getElementById(contentId);
+      c.innerHTML = '';
+      const p = document.createElement('p');
+      p.className = 'error-state';
+      p.textContent = '無法連線至東海課程資訊網';
+      c.appendChild(p);
+      const retryBtn = document.createElement('button');
+      retryBtn.type = 'button';
+      retryBtn.className = 'btn btn-secondary';
+      retryBtn.textContent = '重試';
+      retryBtn.addEventListener('click', retryFn);
+      c.appendChild(retryBtn);
+    }
+
+    // ---- Step 1：選學年期 ----
+    function loadImportTerms() {
+      renderImportLoading('import-step1-content');
+      ThuApi.getTerms()
+        .then(renderImportTermSelect)
+        .catch(() => renderImportError('import-step1-content', loadImportTerms));
+    }
+
+    function renderImportTermSelect(terms) {
+      const c = document.getElementById('import-step1-content');
+      c.innerHTML = '';
+      const select = document.createElement('select');
+      select.id = 'import-term-select';
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '請選擇學年期';
+      select.appendChild(placeholder);
+      (terms || []).forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = `${t.year}-${t.term}`;
+        opt.textContent = `${t.year}學年度第${t.term}學期（${t.cnt}門）`;
+        select.appendChild(opt);
+      });
+      select.addEventListener('change', () => {
+        if (!select.value) return;
+        const [year, term] = select.value.split('-');
+        importSelectedYear = year;
+        importSelectedTerm = term;
+        document.getElementById('import-step2').style.display = 'block';
+        document.getElementById('import-step3').style.display = 'none';
+        loadImportDeptTree();
+      });
+      c.appendChild(select);
+    }
+
+    // ---- Step 2：選系所 ----
+    function loadImportDeptTree() {
+      renderImportLoading('import-step2-content');
+      ThuApi.getDeptTree(importSelectedYear, importSelectedTerm)
+        .then(renderImportDeptSelect)
+        .catch(() => renderImportError('import-step2-content', loadImportDeptTree));
+    }
+
+    function renderImportDeptSelect(deptTree) {
+      const c = document.getElementById('import-step2-content');
+      c.innerHTML = '';
+
+      const collegeSelect = document.createElement('select');
+      collegeSelect.id = 'import-college-select';
+      const collegePlaceholder = document.createElement('option');
+      collegePlaceholder.value = '';
+      collegePlaceholder.textContent = '請選擇學院';
+      collegeSelect.appendChild(collegePlaceholder);
+      (deptTree || []).forEach(col => {
+        const opt = document.createElement('option');
+        opt.value = col.college_code;
+        opt.textContent = col.college_label;
+        collegeSelect.appendChild(opt);
+      });
+
+      const deptSelect = document.createElement('select');
+      deptSelect.id = 'import-dept-select';
+      deptSelect.disabled = true;
+      const deptPlaceholder = document.createElement('option');
+      deptPlaceholder.value = '';
+      deptPlaceholder.textContent = '請先選學院';
+      deptSelect.appendChild(deptPlaceholder);
+
+      const searchBtn = document.createElement('button');
+      searchBtn.type = 'button';
+      searchBtn.id = 'import-search-btn';
+      searchBtn.className = 'btn btn-primary';
+      searchBtn.textContent = '搜尋課程';
+      searchBtn.disabled = true;
+
+      collegeSelect.addEventListener('change', () => {
+        const college = (deptTree || []).find(col => col.college_code === collegeSelect.value);
+        deptSelect.innerHTML = '';
+        const ph = document.createElement('option');
+        ph.value = '';
+        ph.textContent = college ? '請選擇系所' : '請先選學院';
+        deptSelect.appendChild(ph);
+        (college?.departments || []).forEach(d => {
+          const opt = document.createElement('option');
+          opt.value = d.majrcode;
+          opt.textContent = d.majrname;
+          deptSelect.appendChild(opt);
+        });
+        deptSelect.disabled = !college;
+        searchBtn.disabled = true;
+      });
+
+      deptSelect.addEventListener('change', () => {
+        searchBtn.disabled = !deptSelect.value;
+      });
+
+      searchBtn.addEventListener('click', () => {
+        importSelectedMajrcode = deptSelect.value;
+        document.getElementById('import-step3').style.display = 'block';
+        loadImportCourses();
+      });
+
+      c.appendChild(collegeSelect);
+      c.appendChild(deptSelect);
+      c.appendChild(searchBtn);
+    }
+
+    // ---- Step 3：選課加入 ----
+    function isAlreadyImported(course) {
+      return myCourses.some(mc => mc.name === course.name && mc.teacher === course.teacher);
+    }
+
+    // 衝堂偵測：比對「加入前」課程的 day+periods 是否與現有 my-courses 任一筆重疊
+    // 只取解析結果第一個時段比對（見 importCourseFromThu 的多時段備註）
+    function findScheduleConflict(parsedFirstSlot) {
+      if (!parsedFirstSlot || !parsedFirstSlot.day || !parsedFirstSlot.periods) return null;
+      const incomingPeriods = new Set(String(parsedFirstSlot.periods).split(',').map(s => s.trim()));
+      return myCourses.find(mc => {
+        if (mc.day !== parsedFirstSlot.day) return false;
+        const mcPeriods = String(mc.periods || '').split(',').map(s => s.trim());
+        return mcPeriods.some(p => incomingPeriods.has(p));
+      }) || null;
+    }
+
+    // 東海部分課程跨兩天（如 "一/B,三/5,6,7"），目前只取第一個時段寫入 my-courses；
+    // 完整多時段支援列為技術債，待 my-courses schema 支援 periods 陣列後處理。
+    function importCourseFromThu(course, parsed) {
+      const first = parsed[0] || { day: '', periods: '' };
+      myCourses.push({
+        instanceId: (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)),
+        semester: '',
+        status: 'planned',
+        creditType: '',
+        credits: course.credits,
+        name: course.name,
+        teacher: course.teacher,
+        day: first.day,
+        periods: first.periods,
+        resultStatus: 'pending',
+        grading: [],
+        note: ''
+      });
+      persistMyCourses();
+      renderMyCoursesTable();
+    }
+
+    function loadImportCourses() {
+      renderImportLoading('import-step3-content');
+      ThuApi.searchCourses(importSelectedYear, importSelectedTerm, importSelectedMajrcode)
+        .then(renderImportCourseList)
+        .catch(() => renderImportError('import-step3-content', loadImportCourses));
+    }
+
+    function renderImportCourseList(courses) {
+      const c = document.getElementById('import-step3-content');
+      c.innerHTML = '';
+
+      if (!courses || courses.length === 0) {
+        const p = document.createElement('p');
+        p.className = 'text-muted';
+        p.textContent = '此系所暫無課程資料。';
+        c.appendChild(p);
+        return;
+      }
+
+      const wrap = document.createElement('div');
+      wrap.className = 'editable-table-wrap';
+      const table = document.createElement('table');
+      table.className = 'editable-table';
+      const thead = document.createElement('thead');
+      thead.innerHTML = '<tr><th>課程名稱</th><th>教師</th><th>時間</th><th>學分</th><th class="col-action">操作</th></tr>';
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+
+      courses.forEach(course => {
+        const parsed = ThuApi.parseTimeroom(course.timeroom);
+        const timeText = parsed
+          .map(p => (p.day && p.periods) ? `${p.day}/${p.periods}` : '')
+          .filter(Boolean)
+          .join('、') || (course.timeroom || '');
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${escapeHtml(course.name)}</td>
+          <td>${escapeHtml(course.teacher)}</td>
+          <td>${escapeHtml(timeText)}</td>
+          <td>${escapeHtml(String(course.credits ?? ''))}</td>
+        `;
+
+        const tdAction = document.createElement('td');
+        tdAction.className = 'col-action';
+
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+
+        const warnBox = document.createElement('div');
+        warnBox.className = 'conflict-warning';
+        warnBox.style.display = 'none';
+
+        function refreshAddBtn() {
+          if (isAlreadyImported(course)) {
+            addBtn.textContent = '已加入';
+            addBtn.disabled = true;
+            addBtn.className = 'btn btn-secondary';
+          } else {
+            addBtn.textContent = '加入';
+            addBtn.disabled = false;
+            addBtn.className = 'btn btn-primary';
+          }
+        }
+        refreshAddBtn();
+
+        function doImport() {
+          importCourseFromThu(course, parsed);
+          refreshAddBtn();
+          warnBox.style.display = 'none';
+          warnBox.innerHTML = '';
+        }
+
+        addBtn.addEventListener('click', () => {
+          if (isAlreadyImported(course)) return;
+          const conflict = findScheduleConflict(parsed[0]);
+          if (conflict) {
+            warnBox.innerHTML = '';
+            const msg = document.createElement('span');
+            msg.textContent = `⚠ 與「${conflict.name}」（${conflict.day} 第${conflict.periods}節）衝堂，仍要加入？`;
+            warnBox.appendChild(msg);
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.type = 'button';
+            cancelBtn.className = 'btn btn-secondary';
+            cancelBtn.textContent = '取消';
+            cancelBtn.addEventListener('click', () => {
+              warnBox.style.display = 'none';
+              warnBox.innerHTML = '';
+            });
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.type = 'button';
+            confirmBtn.className = 'btn btn-danger';
+            confirmBtn.textContent = '確認加入';
+            confirmBtn.addEventListener('click', doImport);
+
+            warnBox.appendChild(cancelBtn);
+            warnBox.appendChild(confirmBtn);
+            warnBox.style.display = 'flex';
+            return;
+          }
+          doImport();
+        });
+
+        tdAction.appendChild(addBtn);
+        tdAction.appendChild(warnBox);
+        tr.appendChild(tdAction);
+        tbody.appendChild(tr);
+      });
+
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      c.appendChild(wrap);
+    }
+
+    // ---- 面板折疊 / 展開 ----
+    document.getElementById('btn-toggle-import').addEventListener('click', () => {
+      const panel = document.getElementById('import-panel');
+      const willExpand = panel.classList.contains('collapsed');
+      panel.classList.toggle('collapsed');
+      document.getElementById('btn-toggle-import').textContent = willExpand
+        ? '▼ 從東海課程資訊網匯入'
+        : '▶ 從東海課程資訊網匯入';
+      if (willExpand && !importPanelInitialized) {
+        importPanelInitialized = true;
+        loadImportTerms();
+      }
+    });
 
     // ==========================================================
     // 初始化
