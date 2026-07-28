@@ -79,7 +79,14 @@
     let teachers = Storage.read('teachers') || [];
 
     // my-courses（私密資料，Phase 02 暫存 localStorage，Phase 06 才接雲端同步）
-    let myCourses = Storage.read('my-courses') || [];
+    // 格式遷移：舊資料是單一 day/periods 欄位，新格式改用 slots 陣列
+    // 支援東海跨天課程（如"一/B,三/5,6,7"）；load時就地轉換，下次寫入自動變新格式
+    function migrateCourseSlots(course) {
+      if (course.slots) return course;
+      const { day, periods, ...rest } = course;
+      return { ...rest, slots: [{ day: day || '', periods: periods || '' }] };
+    }
+    let myCourses = (Storage.read('my-courses') || []).map(migrateCourseSlots);
 
     // curriculum enum（暫時內嵌預設值，Phase 06 接雲端後改為真正來源）
     let curriculumEnum = Storage.read('curriculum-enum') || {
@@ -213,8 +220,7 @@
         credits: course.credits,
         name: course.name,
         teacher: course.teacher,
-        day: course.day,
-        periods: course.periods,
+        slots: [{ day: course.day, periods: course.periods }],
         resultStatus: 'pending',
         grading: [],
         note: ''
@@ -472,22 +478,25 @@
       return myCourses.some(mc => mc.name === course.name && mc.teacher === course.teacher);
     }
 
-    // 衝堂偵測：比對「加入前」課程的 day+periods 是否與現有 my-courses 任一筆重疊
-    // 只取解析結果第一個時段比對（見 importCourseFromThu 的多時段備註）
-    function findScheduleConflict(parsedFirstSlot) {
-      if (!parsedFirstSlot || !parsedFirstSlot.day || !parsedFirstSlot.periods) return null;
-      const incomingPeriods = new Set(String(parsedFirstSlot.periods).split(',').map(s => s.trim()));
-      return myCourses.find(mc => {
-        if (mc.day !== parsedFirstSlot.day) return false;
-        const mcPeriods = String(mc.periods || '').split(',').map(s => s.trim());
-        return mcPeriods.some(p => incomingPeriods.has(p));
-      }) || null;
+    // 衝堂偵測：比對「加入前」課程的全部時段是否與現有 my-courses 任一筆的任一時段重疊
+    // （東海部分課程跨兩天，如"一/B,三/5,6,7"，每個時段都要各自比對，不能只看第一個）
+    function findScheduleConflict(parsedSlots) {
+      const incoming = (parsedSlots || []).filter(s => s.day && s.periods);
+      if (incoming.length === 0) return null;
+      return myCourses.find(mc =>
+        (mc.slots || []).some(mcSlot => {
+          const mcPeriods = String(mcSlot.periods || '').split(',').map(s => s.trim());
+          return incoming.some(inSlot => {
+            if (mcSlot.day !== inSlot.day) return false;
+            const inPeriods = new Set(String(inSlot.periods).split(',').map(s => s.trim()));
+            return mcPeriods.some(p => inPeriods.has(p));
+          });
+        })
+      ) || null;
     }
 
-    // 東海部分課程跨兩天（如 "一/B,三/5,6,7"），目前只取第一個時段寫入 my-courses；
-    // 完整多時段支援列為技術債，待 my-courses schema 支援 periods 陣列後處理。
+    // 東海部分課程跨兩天（如 "一/B,三/5,6,7"），完整寫入全部時段
     function importCourseFromThu(course, parsed) {
-      const first = parsed[0] || { day: '', periods: '' };
       myCourses.push({
         instanceId: (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)),
         semester: '',
@@ -496,8 +505,7 @@
         credits: course.credits,
         name: course.name,
         teacher: course.teacher,
-        day: first.day,
-        periods: first.periods,
+        slots: (parsed && parsed.length > 0) ? parsed : [{ day: '', periods: '' }],
         resultStatus: 'pending',
         grading: [],
         note: ''
@@ -581,11 +589,13 @@
 
         addBtn.addEventListener('click', () => {
           if (isAlreadyImported(course)) return;
-          const conflict = findScheduleConflict(parsed[0]);
+          const conflict = findScheduleConflict(parsed);
           if (conflict) {
             warnBox.innerHTML = '';
             const msg = document.createElement('span');
-            msg.textContent = `⚠ 與「${conflict.name}」（${conflict.day} 第${conflict.periods}節）衝堂，仍要加入？`;
+            const conflictTimeText = (conflict.slots || [])
+              .map(s => `${s.day} 第${s.periods}節`).join('、');
+            msg.textContent = `⚠ 與「${conflict.name}」（${conflictTimeText}）衝堂，仍要加入？`;
             warnBox.appendChild(msg);
 
             const cancelBtn = document.createElement('button');

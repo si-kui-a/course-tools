@@ -39,7 +39,14 @@
     const PERIODS = Array.from({ length: 13 }, (_, i) => String(i + 1));
     const DAYS = ['一','二','三','四','五'];
 
-    let myCourses = Storage.read('my-courses') || [];
+    // 格式遷移：舊資料是單一 day/periods 欄位，新格式改用 slots 陣列
+    // （與 courses.html 各自獨立讀取 my-courses，故兩處都需要此遷移）
+    function migrateCourseSlots(course) {
+      if (course.slots) return course;
+      const { day, periods, ...rest } = course;
+      return { ...rest, slots: [{ day: day || '', periods: periods || '' }] };
+    }
+    let myCourses = (Storage.read('my-courses') || []).map(migrateCourseSlots);
     let catalog = Storage.read('catalog') || [];
     // 模擬模式下額外勾選的 catalog 課程（不寫回 my-courses，只用於試算）
     let simSelectedCourseIds = new Set();
@@ -74,7 +81,8 @@
         .map(c => ({
           // 模擬課程沒有 creditType（catalog 無此欄位），歸類為 '模擬'，不計入系選/必修/非系選小計
           semester: sem, status: 'selected', creditType: c.category === '通識' ? '通識' : '模擬',
-          credits: c.credits, name: c.name, teacher: c.teacher, day: c.day, periods: c.periods,
+          credits: c.credits, name: c.name, teacher: c.teacher,
+          slots: [{ day: c.day, periods: c.periods }],
           resultStatus: 'pending'
         }));
       return base.concat(simCourses);
@@ -100,10 +108,12 @@
         grid.appendChild(makeCell(period, 'tt-period-label'));
         DAYS.forEach(day => {
           const key = `${day}-${period}`;
-          const coursesInSlot = courses.filter(c => {
-            const periods = String(c.periods || '').split(',').map(p => p.trim());
-            return c.day === day && periods.includes(period);
-          });
+          const coursesInSlot = courses.filter(c =>
+            (c.slots || []).some(s => {
+              const periods = String(s.periods || '').split(',').map(p => p.trim());
+              return s.day === day && periods.includes(period);
+            })
+          );
           const cell = document.createElement('div');
           cell.className = 'tt-cell';
           if (coursesInSlot.length > 0) cell.classList.add('has-course');

@@ -146,17 +146,20 @@ const CreditCalc = (() => {
 
   /**
    * 偵測課表衝堂：同一天同一節次出現兩門(含)以上課程
-   * @param {Array} myCourses - 已篩選 status=selected 的課程
+   * @param {Array} myCourses - 已篩選 status=selected 的課程，每筆含 slots: Array<{day, periods}>
+   *   (課程可能跨多天/多時段，如東海課程"一/B,三/5,6,7"對應兩筆slots)
    * @returns {Array<{ day: string, period: string, courses: Array }>} 衝堂清單
    */
   function detectConflicts(myCourses) {
     const slotMap = {}; // key: "day-period" → [course, ...]
     (myCourses || []).forEach(course => {
-      const periods = String(course.periods || '').split(',').map(p => p.trim()).filter(Boolean);
-      periods.forEach(period => {
-        const key = `${course.day}-${period}`;
-        if (!slotMap[key]) slotMap[key] = [];
-        slotMap[key].push(course);
+      (course.slots || []).forEach(slot => {
+        const periods = String(slot.periods || '').split(',').map(p => p.trim()).filter(Boolean);
+        periods.forEach(period => {
+          const key = `${slot.day}-${period}`;
+          if (!slotMap[key]) slotMap[key] = [];
+          slotMap[key].push(course);
+        });
       });
     });
     const conflicts = [];
