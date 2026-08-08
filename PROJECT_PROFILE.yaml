@@ -1,1 +1,7 @@
-profile: web-platform`r`nAI_REQUIRED: false`r`nentrypoint: course-tools/index.html`r`noffline_check: "python scripts/verify_project_contract.py && python scripts/run_profile_checks.py"`r`nrun_command: "open course-tools/index.html"`r`nrollback: "restore the recorded commit"`r`nowner: "repository maintainer
+profile: web-platform
+AI_REQUIRED: false
+entrypoint: course-tools/index.html
+offline_check: "python scripts/verify_project_contract.py && python scripts/run_profile_checks.py"
+run_command: "open course-tools/index.html"
+rollback: "restore the recorded commit"
+owner: "repository maintainer"
