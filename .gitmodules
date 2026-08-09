@@ -1,0 +1,6 @@
+[submodule "course-data-private"]
+    path = course-data-private
+    url = https://github.com/si-kui-a/course-data-private.git
+[submodule "course-tools"]
+    path = course-tools
+    url = https://github.com/si-kui-a/course-tools.git
