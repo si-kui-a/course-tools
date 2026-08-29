@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JavaScript syntax check
+        # Zero-build repo, no package.json -- `node --check` (Node ships
+        # preinstalled on this runner) needs no npm install.
+        run: |
+          set -e
+          find js -name '*.js' -print0 | xargs -0 -n1 node --check
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: HTML reference + data JSON check
+        # scripts/ci_checks.py: every local <script src>/<link href>/<img
+        # src> must resolve to a real file, and every data/*.json must
+        # parse -- see the script's own docstring for why.
+        run: python scripts/ci_checks.py
+
+      - name: Secret/key file scan
+        run: |
+          set -e
+          if git ls-files | grep -E '(^|/)\.env$|(^|/)\.env\.[^.]+$' | grep -v '\.env\.example$'; then
+            echo "::error::tracked .env-like file found"
+            exit 1
+          fi
+          if git ls-files | grep -E '\.(jks|keystore|p12|pem)$'; then
+            echo "::error::tracked key/cert file found"
+            exit 1
+          fi
