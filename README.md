@@ -4,7 +4,8 @@
 
 ## 架構說明
 
-純靜態網頁，GitHub Pages 部署。無 server、無 build pipeline、無 CI/CD。
+純靜態網頁，GitHub Pages 部署。無 server、無 build pipeline（GitHub Pages 直接發布靜態檔）。
+有一個唯讀的驗證用 GitHub Actions（HTML/JS 語法、JSON 格式），不影響部署方式。
 
 ## Repo 分工
 
