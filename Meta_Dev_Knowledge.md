@@ -12,6 +12,16 @@
 純stdlib，只找候選不判斷對錯，不進CI（跟`scripts/ci_checks.py`的
 HTML引用完整性/JSON格式驗證性質不同，那是CI硬gate，這支手動觸發）。
 
+**★2026-08-30訂為閥值自動觸發★收工時先跑這行判斷要不要做健檢，不用
+自己記或等使用者提醒**：
+```bash
+git rev-list --count $(head -c 7 scripts/.last-audit-marker)..HEAD
+```
+（**這個檔案不存在**時上面這行會直接報錯——代表從沒跑過健檢，視同
+數字已達閥值，直接跑健檢腳本並用結果建立這個檔案，不用回頭修這行
+指令）**這個數字≥8就自動跑**`python scripts/dev_knowledge_audit.py`，
+跑完後用當下HEAD的short SHA+日期覆寫`scripts/.last-audit-marker`。
+
 ---
 
 ## PAT 記錄
