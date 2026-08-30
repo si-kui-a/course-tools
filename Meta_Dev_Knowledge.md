@@ -3,6 +3,15 @@
 > 記錄架構決策、技術事故、不可變原則。
 > 更新原則：只在發生具體技術事故或流程洞察時更新，不強行湊內容。
 
+## 查證順序（2026-08-30訂定，移植自wordpress-builder-playbook repo的
+同類規則）
+不確定的做法先查這份檔案有沒有現成PAT條目，內部真的沒有才查外部；
+查證後證實真實可用有益處的做法，直接補一則新PAT條目，不用另外問要
+不要記錄。**機械複查**：`python scripts/dev_knowledge_audit.py`——PAT
+編號連續性/跨檔案PAT引用完整性/JS·CSS檔案篇幅離群值/過時關鍵字候選，
+純stdlib，只找候選不判斷對錯，不進CI（跟`scripts/ci_checks.py`的
+HTML引用完整性/JSON格式驗證性質不同，那是CI硬gate，這支手動觸發）。
+
 ---
 
 ## PAT 記錄
