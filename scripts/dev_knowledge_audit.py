@@ -16,6 +16,7 @@ dev_knowledge_audit.py — 「資深懶散工程師複查」的機械化版本�
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -135,11 +136,48 @@ def check_stale_keywords() -> None:
     print(f"  共{hits}處候選——逐一確認是否已被同檔案或其他檔案的較新內容取代")
 
 
+def check_unmerged_branches() -> None:
+    print("\n== 5. 未merge分支健檢（2026-08-30新增，2026-08-30全repo分支殘留"
+          "清理後訂定；純唯讀，只列名單不做任何刪除/合併判斷——要不要處理"
+          "每次都要真人/AI實際讀內容才能決定，見同批新增的「全面收斂稽核」"
+          "章節）==")
+    default_branch = "main"
+    try:
+        subprocess.run(
+            ["git", "fetch", "--all", "--prune"],
+            cwd=ROOT, capture_output=True, timeout=30, check=False,
+        )
+        result = subprocess.run(
+            ["git", "branch", "-r", "--no-merged", f"origin/{default_branch}"],
+            cwd=ROOT, capture_output=True, text=True, timeout=10, check=False,
+        )
+        names = [
+            line.strip() for line in result.stdout.splitlines()
+            if line.strip() and "->" not in line
+        ]
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"  （檢查失敗，可能不在git repo或git不可用：{e}）")
+        return
+    if not names:
+        print("  （無未merge分支）")
+        return
+    for name in names:
+        short = name.removeprefix("origin/")
+        count = subprocess.run(
+            ["git", "rev-list", "--count", f"origin/{default_branch}..{name}"],
+            cwd=ROOT, capture_output=True, text=True, timeout=10, check=False,
+        ).stdout.strip()
+        print(f"  {short}：領先{count}個commit，未merge")
+    print(f"  共{len(names)}個——是否要救回內容或直接刪除，逐一核對實際"
+          f"commit內容才能判斷，不能只憑分支名稱/存在天數猜測")
+
+
 def main() -> int:
     real_nums = check_pat_continuity()
     check_pat_cross_references(real_nums)
     check_size_outliers()
     check_stale_keywords()
+    check_unmerged_branches()
     print("\n完成。以上都只是候選，不是結論——逐項人工/AI確認後才動手修。")
     return 0
 
