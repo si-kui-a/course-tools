@@ -176,9 +176,30 @@ options 關閉。若硬塞篩選後的子集進去，新增會產生沒有學期
 讀寫，`courses.html` 的 EditableTable schema 不需要跟著加這個欄位，跟 `grading`/
 `note` 這些「有些頁面用、有些頁面不用」的既有欄位待遇一致）。
 
+### PAT-09：credit-calc.js `taken()` 是否應排除 `resultStatus='withdrawn'` 的課程（KNOWN_ISSUE，2026-09-11全倉庫稽核發現）
+
+**現象**：`taken(myCourses, semester, manualFallback)` 在 `selected.length > 0`
+時，對「該學期全部 `status='selected'` 的課程」直接加總學分——不篩
+`resultStatus`，包含 `resultStatus='withdrawn'`（已退選）的課程。相對地，
+`earned()` 明確只計入 `resultStatus='passed'`，`grade-calc.js` 的
+`eligibleRows()` 也明確排除 `withdrawn`。三者對「withdrawn 課程該不該被
+計入某個統計數字」的處置不一致，但只有 `taken()` 這處把 withdrawn 也
+算進去。
+
+**未能判定的原因**：這不是純程式邏輯問題，是東海大學「修習學分」這個
+統計數字本身的規則——退選課程是否計入「修習學分」屬於校方學籍規則，
+本專案沒有查證過真實規則，不能靠程式碼推論猜測哪一種是對的（零虛構
+原則：不確定的業務規則不能自己拍板）。
+
+**規則**：先向使用者/東海學籍規則查證「修習學分是否含已退選課程」，
+確認後才修正 `taken()`（若答案是「不含」，改成 `selected.filter(c =>
+c.resultStatus !== 'withdrawn')` 再加總，比照 `earned()`/`eligibleRows()`
+的排除方式）。查證前不要自行選一種假設直接改。
+
 ## 待解事項
 
-（目前無）
+- PAT-09：`credit-calc.js` `taken()` 是否該排除 withdrawn 課程，待向使用者
+  查證東海學籍規則。
 
 ## 版本歷史
 
