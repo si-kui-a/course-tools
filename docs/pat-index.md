@@ -12,3 +12,4 @@
 | PAT-06 | Phase 03 遺留測試失敗（creditTypeSubtotal） | RESOLVED | 2026-07-28：程式碼行為裁定正確，已修正測試斷言 |
 | PAT-07 | 指令書引用不存在的 API／欄位（連續2輪） | KNOWN_ISSUE | 執行前核對實檔已成慣例 |
 | PAT-08 | editable-table.js 無 filterFn、新增/刪除鈕無法關閉 | KNOWN_LIMITATION | 2026-07-29：grades.html 移植時發現，改手刻表格繞開 |
+| PAT-09 | credit-calc.js taken() 未排除 withdrawn 課程 | KNOWN_ISSUE | 2026-09-11全倉庫稽核發現，待查證東海學籍規則後裁定是否修正 |
