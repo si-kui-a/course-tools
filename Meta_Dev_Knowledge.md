@@ -75,6 +75,18 @@ git rev-list --count $(head -c 7 scripts/.last-audit-marker)..HEAD
 暫時以本地 fixture 值內嵌於 `courses.html`（`curriculumEnum` 變數），非真正私密 repo
 讀取。此為刻意延後，非疏漏——待 Phase 06 `github-sync.js` 完成後接上真正來源。
 
+**2026-09-11 repo-bug-audit-pipeline補充**：這個fixture實際上被獨立複製了
+兩份，不是只有courses.html——`grades.html`也各自內嵌一份同樣的
+`curriculumEnum`預設值（含`creditTypeOptions`），兩邊都讀同一個
+`Storage.read('curriculum-enum')` key當作「真正來源接上後」的讀取點，
+但目前**沒有任何地方寫入**這個key，所以兩邊的fixture只是巧合相同、不是
+被同步機制保證一致。`SEMESTERS`/`categoryOptions`/`domainOptions`也是
+同樣模式（各自硬編碼於2~4個`modules/*.html`）。目前全部copy仍一致，
+未實際走樣，但改動其中一份不會有任何錯誤提示——已加入
+`scripts/ci_checks.py`的`check_duplicate_constants()`機械檢查，這幾組
+duplicate array一旦任一份被改動到跟其他份不同就會讓CI failed，Phase 06
+真正接上單一來源後這個檢查機制可以直接移除。
+
 ---
 
 ### PAT-04：測試環境限制 — 原生 prompt() 對話框（KNOWN_ISSUE）

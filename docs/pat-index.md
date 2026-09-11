@@ -6,7 +6,7 @@
 |---|---|---|---|
 | PAT-01 | 資料分流原則 | CORE_IMMUTABLE | 生效中 |
 | PAT-02 | 共用元件職責邊界 | CORE_IMMUTABLE | 生效中，Phase 02 已驗證 |
-| PAT-03 | enum 唯一來源 | CORE_IMMUTABLE | 生效中，雲端來源待 Phase 06 接上 |
+| PAT-03 | enum 唯一來源 | CORE_IMMUTABLE | 生效中，雲端來源待 Phase 06 接上；2026-09-11補充：fixture實際複製於courses.html+grades.html兩處，已加ci_checks.py機械guard |
 | PAT-04 | 測試環境限制 — 原生 prompt() 對話框 | KNOWN_ISSUE | 因應模式已定案，後續 Phase 沿用 |
 | PAT-05 | Phase 編號與骨架標籤不一致 | KNOWN_ISSUE | 已存證，使用者選擇維持 Phase 06 編號 |
 | PAT-06 | Phase 03 遺留測試失敗（creditTypeSubtotal） | RESOLVED | 2026-07-28：程式碼行為裁定正確，已修正測試斷言 |
