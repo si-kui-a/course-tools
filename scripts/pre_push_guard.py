@@ -108,6 +108,8 @@ def check_new_branch_hints(pushes: list) -> bool:
         for other in other_branches:
             if other == branch_name:
                 continue
+            if default_branch and _is_ancestor(other, f"origin/{default_branch}"):
+                continue  # already merged into the default branch -- not a stacking risk
             if _is_ancestor(other, branch_name):
                 print(
                     f"[提醒] {branch_name} 是從尚未合併的分支「{other}」長出來的(stacking)，"
