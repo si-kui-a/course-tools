@@ -217,8 +217,10 @@ def check_staged_diff_for_secrets() -> bool:
 # 互動式被呼叫時，不會像互動式終端機那樣自動轉換Windows路徑，導致
 # 「No such file or directory」），改成直接用Python重做這3行邏輯，
 # 不依賴bash可執行檔存在或路徑轉換行為。兩邊都是解析`git status
-# --porcelain`找" D "(未暫存刪除)這個pattern，改一邊記得檢查另一邊
-# 要不要同步。
+# --porcelain`找「工作區欄位為D」(第2個字元=D)，改一邊記得檢查另一邊
+# 要不要同步。2026-09-24修正：原本只比對`" D"`，漏掉`AD`(加進暫存區後
+# 又從磁碟刪掉)跟`MD`(改過並暫存後又刪掉)，跟shell版的`^.D `漂移；
+# 由scripts/test_guard_parity.py用真實git狀態涵蓋，兩個guard變體一起測。
 def check_no_unstaged_deletes() -> bool:
     result = subprocess.run(
         ["git", "status", "--porcelain"],
@@ -226,7 +228,7 @@ def check_no_unstaged_deletes() -> bool:
     )
     orphaned = [
         line[3:] for line in result.stdout.splitlines()
-        if line[:2] == " D"
+        if len(line) > 3 and line[1] == "D"
     ]
     if orphaned:
         print("[BLOCKED] 以下路徑已經從磁碟消失，但尚未在git暫存區記錄成刪除：")
