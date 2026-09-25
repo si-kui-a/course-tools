@@ -30,3 +30,10 @@ commit）；子模組`course-tools/`走`main`（57個commit，2026-07-23起的
 `main`對齊。`.gitmodules`已於2026-08-31補齊（先前遺漏，導致新clone
 這個outer repo時子模組無法正確初始化），之後正常`git submodule update
 --init`即可。
+
+**2026-09-25更新：外層改走遠端`wrapper`分支**。外層歷史在GitHub上被刪過兩次
+——2026-08-30刪`master`、2026-09-20刪`fix/profile-format-20260809`，後者依據是
+「對應PR#6已關閉未合併、跟main無共同祖先＝死分支」，但該分支在PR關閉**之後**
+還有8/31的`.gitmodules`修正與本段說明，導致外層歷史只剩本機一份。已推回
+`origin/wrapper`並改追蹤它（hook禁止推`master`，故不沿用舊名）。**分支稽核／
+清理時不要刪`wrapper`**：它跟`main`沒有共同祖先是刻意的，不是孤兒分支。
